@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Open the Caelestia audio mixer (standalone window). Safe to call repeatedly: if the mixer
+# is already running, this exits instead of opening a second window.
+set -e
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+repo=$(dirname "$here")
+export QML_IMPORT_PATH="$repo/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+exec qs -p "$repo/apps/audio-mixer" --no-duplicate "$@"

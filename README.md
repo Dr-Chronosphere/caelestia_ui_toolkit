@@ -69,8 +69,15 @@ PySide6 (no Quickshell):
 
 ```sh
 pip install PySide6-Essentials
-python3 tests/run_tests.py
+python3 tests/run_tests.py                          # toolkit
+node apps/audio-mixer/tests/logic.test.mjs          # mixer logic
+python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock service
 ```
+
+## Apps
+
+- [`apps/audio-mixer`](apps/audio-mixer): PipeWire output switching, simultaneous output and
+  per-app routing. Launch with `bin/caelestia-audio-mixer`.
 
 ## Status / known gaps
 

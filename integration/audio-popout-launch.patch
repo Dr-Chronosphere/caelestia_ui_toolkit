@@ -1,0 +1,37 @@
+diff --git a/modules/bar/popouts/AudioPopout.qml b/modules/bar/popouts/AudioPopout.qml
+index d9a0728..3e9ae82 100644
+--- a/modules/bar/popouts/AudioPopout.qml
++++ b/modules/bar/popouts/AudioPopout.qml
+@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
+ import QtQuick
+ import QtQuick.Controls
+ import QtQuick.Layouts
++import Quickshell
+ import Quickshell.Services.Pipewire
+ import Caelestia.Config
+ import Caelestia.I18n
+@@ -34,9 +35,21 @@ Item {
+         anchors.verticalCenter: parent.verticalCenter
+         spacing: Tokens.spacing.medium
+ 
+-        StyledText {
+-            text: Tr.trCtx("Output device", "audio output device")
+-            font: Tokens.font.body.builders.medium.weight(Font.Medium).build()
++        RowLayout {
++            Layout.fillWidth: true
++
++            StyledText {
++                Layout.fillWidth: true
++                text: Tr.trCtx("Output device", "audio output device")
++                font: Tokens.font.body.builders.medium.weight(Font.Medium).build()
++            }
++
++            // Opens the standalone Caelestia audio mixer (caelestia_ui_toolkit).
++            IconButton {
++                icon: "tune"
++                type: IconButton.Text
++                onClicked: Quickshell.execDetached(["caelestia-audio-mixer"])
++            }
+         }
+ 
+         Repeater {
