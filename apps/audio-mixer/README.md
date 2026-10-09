@@ -24,14 +24,28 @@ Put `bin/` on your `PATH` (or symlink the script into `~/.local/bin`) so the she
 
 ## Open it from the shell's audio popout
 
-`integration/audio-popout-launch.patch` adds a "tune" icon next to *Output device* in the popout.
-It targets caelestia-shell's `modules/bar/popouts/AudioPopout.qml` and needs a manual-install copy
-of the shell (the AUR package's files should not be edited):
+`integration/add-popout-button.sh` adds a "tune" icon to the popout that runs
+`caelestia-audio-mixer`. The packaged shell is read-only system files, so first make a user copy
+of it. Copy *your installed* version (not a fresh clone) so it matches the installed plugin:
 
 ```sh
-cd ~/.config/quickshell/caelestia
-git apply /path/to/caelestia_ui_toolkit/integration/audio-popout-launch.patch
+# Find the installed shell (Arch/AUR: /etc/xdg/quickshell/caelestia)
+pacman -Ql caelestia-shell | grep AudioPopout.qml
+
+rmdir ~/.config/quickshell/caelestia 2>/dev/null     # remove an empty dir if you made one
+mkdir -p ~/.config/quickshell
+cp -r /etc/xdg/quickshell/caelestia ~/.config/quickshell/caelestia
+
+/path/to/caelestia_ui_toolkit/integration/add-popout-button.sh \
+    ~/.config/quickshell/caelestia/modules/bar/popouts/AudioPopout.qml
 ```
+
+Restart the shell (`caelestia shell -k; caelestia shell -d`). Quickshell prefers the copy in
+`~/.config/quickshell` over the system one. Undo with `add-popout-button.sh --revert <same path>`
+or by deleting the copy.
+
+Trade-off: a user copy does not receive QML updates from package upgrades. After upgrading
+`caelestia-shell`, delete the copy and repeat the steps above.
 
 ## Design
 
@@ -50,4 +64,4 @@ python3 apps/audio-mixer/tests/run_ui_tests.py     # needs PySide6
 
 Written against Quickshell's documented API but never run against a live PipeWire session:
 `Mixer.qml` (node tracking, link lookup for "current output", `pactl` flows), the combined-sink
-arguments (`slaves=` with a `sinks=` fallback), and the shell patch. Expect small fixes on first run.
+arguments (`slaves=` with a `sinks=` fallback), and the popout script on real shell versions. Expect small fixes on first run.
