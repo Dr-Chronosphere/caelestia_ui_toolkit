@@ -15,3 +15,5 @@ Card 1.0 Card.qml
 ListRow 1.0 ListRow.qml
 SectionHeader 1.0 SectionHeader.qml
 AppWindow 1.0 AppWindow.qml
+StyledTextField 1.0 StyledTextField.qml
+RoundedImage 1.0 RoundedImage.qml

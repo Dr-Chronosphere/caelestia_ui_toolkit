@@ -54,7 +54,7 @@ Run the gallery: `examples/gallery/run.sh` (needs `qs`, i.e. Quickshell).
 | --- | --- |
 | Theme | `Theme` (singleton: palette, rounding, spacing, padding, fonts, icon sizes, curves, durations) |
 | Animation | `Anim` (typed M3 expressive durations/curves), `CAnim` (colour transitions) |
-| Basics | `StyledText`, `MaterialIcon`, `StyledRect`, `StateLayer` |
+| Basics | `StyledText`, `MaterialIcon`, `StyledRect`, `StateLayer`, `StyledTextField`, `RoundedImage` |
 | Controls | `ButtonBase`, `TextButton`, `IconButton`, `StyledSwitch`, `StyledSlider` |
 | Layout | `Card`, `ListRow`, `SectionHeader` |
 | Window | `AppWindow` (themed `FloatingWindow`, needs Quickshell) |
@@ -71,6 +71,8 @@ PySide6 (no Quickshell):
 pip install PySide6-Essentials
 python3 tests/run_tests.py                          # toolkit
 node apps/audio-mixer/tests/logic.test.mjs          # mixer logic
+node apps/files/tests/logic.test.mjs                # file manager logic
+python3 apps/files/tests/run_ui_tests.py            # file manager UI on a temp tree
 python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock service
 ```
 
@@ -78,6 +80,11 @@ python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock servi
 
 - [`apps/audio-mixer`](apps/audio-mixer): PipeWire output switching, simultaneous output and
   per-app routing. Launch with `bin/caelestia-audio-mixer`.
+
+- [`apps/files`](apps/files): file manager (places sidebar, breadcrumbs, icon/list views, search).
+  Launch with `bin/caelestia-files`.
+
+Design notes for a Trellis-style spaces overview on Hyprland: [`docs/spaces-design.md`](docs/spaces-design.md).
 
 ## Status / known gaps
 
