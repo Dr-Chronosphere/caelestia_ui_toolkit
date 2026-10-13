@@ -84,7 +84,7 @@ python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock servi
 - [`apps/files`](apps/files): file manager (places sidebar, breadcrumbs, icon/list views, search).
   Launch with `bin/caelestia-files`.
 
-Design notes for a Trellis-style spaces overview on Hyprland: [`docs/spaces-design.md`](docs/spaces-design.md).
+Design notes for a Trellis-style zoomable workspace: [`docs/spaces-design.md`](docs/spaces-design.md); assessment of building on fractal-wm: [`docs/fractal-wm-integration.md`](docs/fractal-wm-integration.md).
 
 ## Status / known gaps
 

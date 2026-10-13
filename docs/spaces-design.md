@@ -1,6 +1,6 @@
 # Trellis-style spatial workspace on Caelestia: design notes
 
-Status: **design only, nothing built yet.** Based on reading the Trellis source
+Status: **design only, nothing built yet. See `fractal-wm-integration.md`: an existing project (fractal-wm) implements the real-window version of this idea on Hyprland, which changes the plan below.** Based on reading the Trellis source
 (`DanFessler/trellis`, commit `9d1da36`), mainly `packages/core/src/model/{types,spatial}.ts`,
 `packages/core/src/runtime/navigation.ts` and `examples/desktop/`.
 
