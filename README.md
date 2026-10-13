@@ -74,6 +74,8 @@ node apps/audio-mixer/tests/logic.test.mjs          # mixer logic
 node apps/files/tests/logic.test.mjs                # file manager logic
 python3 apps/files/tests/run_ui_tests.py            # file manager UI on a temp tree
 node --test apps/fractal-map/tests/model.test.js    # fractal map model (vendored upstream tests)
+node apps/fractal-edges/tests/seams.test.mjs        # edge handle geometry
+python3 apps/fractal-edges/tests/run_ui_tests.py    # edge handle drag maths
 python3 apps/fractal-map/tests/run_ui_tests.py      # fractal map view
 python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock service
 ```
@@ -87,6 +89,7 @@ python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock servi
   Launch with `bin/caelestia-files`.
 
 - [`apps/fractal-map`](apps/fractal-map): Caelestia-styled map of your [fractal-wm](https://github.com/cgranier/fractal-wm) window tree (MIT port). Launch with `bin/caelestia-fractal-map`.
+- [`apps/fractal-edges`](apps/fractal-edges): draggable tile borders (mouse and touch) for fractal-wm; needs `integration/fractal-wm-edge-resize.patch`. Start with `bin/caelestia-fractal-edges`.
 
 Design notes for a Trellis-style zoomable workspace: [`docs/spaces-design.md`](docs/spaces-design.md); assessment of building on fractal-wm: [`docs/fractal-wm-integration.md`](docs/fractal-wm-integration.md).
 

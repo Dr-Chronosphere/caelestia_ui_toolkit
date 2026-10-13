@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# Mouse/touch edge handles for the fractal-wm layout.
+#
+#   caelestia-fractal-edges [start|stop|restart]
+#
+# Runs as its own background Quickshell instance. Needs the fractal layout with
+# integration/fractal-wm-edge-resize.patch applied.
+set -e
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+repo=$(dirname "$here")
+dir="$repo/apps/fractal-edges"
+export QML_IMPORT_PATH="$repo/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+
+case "${1:-start}" in
+    start) exec qs -p "$dir" --no-duplicate --daemonize ;;
+    stop) exec qs -p "$dir" kill ;;
+    restart) qs -p "$dir" kill 2>/dev/null || true; exec qs -p "$dir" --no-duplicate --daemonize ;;
+    *) echo "usage: caelestia-fractal-edges [start|stop|restart]" >&2; exit 2 ;;
+esac

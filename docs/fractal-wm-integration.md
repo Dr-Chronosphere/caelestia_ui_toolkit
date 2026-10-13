@@ -48,6 +48,11 @@ Hyprland restart or a layout switch.
   fixture), `shell.qml` is the Quickshell wiring, `bin/caelestia-fractal-map` toggles it.
   Setup for a Lua-config system is in `apps/fractal-map/README.md`.
 
+- **Mouse/touch resize**: Hyprland's `resize_on_border` cannot reach a Lua layout (the layout
+  API has only `recalculate` and `layout_msg`). `integration/fractal-wm-edge-resize.patch` adds an
+  `edge` command and node boxes to the status file (tests pass on a fresh upstream checkout);
+  `apps/fractal-edges` is the overlay of draggable seam handles. See its README.
+
 ## Proposed work, in order
 
 1. **Install and try the engine as is** on your system (no code from us): `fractal on`, zoom,
