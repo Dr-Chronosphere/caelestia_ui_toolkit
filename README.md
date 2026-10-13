@@ -91,6 +91,8 @@ python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock servi
 - [`apps/fractal-map`](apps/fractal-map): Caelestia-styled map of your [fractal-wm](https://github.com/cgranier/fractal-wm) window tree (MIT port). Launch with `bin/caelestia-fractal-map`.
 - [`apps/fractal-edges`](apps/fractal-edges): draggable tile borders (mouse and touch) for fractal-wm; needs `integration/fractal-wm-edge-resize.patch`. Start with `bin/caelestia-fractal-edges`.
 
+Setting up fractal-wm: `bin/caelestia-fractal-setup install` (then `check` if something is missing).
+
 Design notes for a Trellis-style zoomable workspace: [`docs/spaces-design.md`](docs/spaces-design.md); assessment of building on fractal-wm: [`docs/fractal-wm-integration.md`](docs/fractal-wm-integration.md).
 
 ## Status / known gaps

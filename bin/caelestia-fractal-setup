@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# One-shot setup for fractal-wm on a Caelestia (Lua-config Hyprland) system.
+#
+#   caelestia-fractal-setup install [--yes]   clone + patch fractal-wm, link its Lua modules,
+#                                             install keybindings and the `fractal` CLI,
+#                                             and add the `require` line to hyprland.lua
+#   caelestia-fractal-setup check             report what is missing and how to fix it
+#
+# Environment overrides: FRACTAL_DIR (clone, default ~/fractal-wm), HYPR_DIR (default
+# ~/.config/hypr), HYPR_LUA (default $HYPR_DIR/hyprland.lua), BIN_DIR (default ~/.local/bin).
+#
+# It never overwrites a regular file with a link, and backs up hyprland.lua before editing it.
+set -euo pipefail
+
+UPSTREAM=https://github.com/cgranier/fractal-wm.git
+PIN=a0969a8                      # the fractal-wm commit the edge patch was written against
+
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+repo=$(dirname "$here")
+patch="$repo/integration/fractal-wm-edge-resize.patch"
+
+FRACTAL_DIR=${FRACTAL_DIR:-$HOME/fractal-wm}
+HYPR_DIR=${HYPR_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr}
+HYPR_LUA=${HYPR_LUA:-$HYPR_DIR/hyprland.lua}
+BIN_DIR=${BIN_DIR:-$HOME/.local/bin}
+CONFIG_ROOT=$(dirname "$HYPR_DIR")   # must be on Lua's package.path for require("hypr.fractal")
+
+ok()   { printf '  [ok]      %s\n' "$*"; }
+miss() { printf '  [MISSING] %s\n' "$*"; problems=$((problems + 1)); }
+warn() { printf '  [warn]    %s\n' "$*"; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+problems=0
+
+# --------------------------------------------------------------------- check --
+check() {
+    echo "fractal-wm setup check"
+    command -v git >/dev/null && ok "git" || miss "git"
+    command -v jq >/dev/null && ok "jq (needed by the fractal CLI)" || miss "jq: install it with your package manager"
+    command -v notify-send >/dev/null && ok "notify-send" || warn "notify-send (libnotify) not found; only needed for 'fractal show'"
+    command -v hyprctl >/dev/null && ok "hyprctl" || warn "hyprctl not found (are you inside Hyprland?)"
+
+    if [ -d "$FRACTAL_DIR/.git" ]; then
+        ok "clone at $FRACTAL_DIR"
+        if git -C "$FRACTAL_DIR" apply --check -R "$patch" >/dev/null 2>&1; then
+            ok "edge-resize patch applied"
+        else
+            miss "edge-resize patch not applied (run: $0 install)"
+        fi
+    else
+        miss "no clone at $FRACTAL_DIR (run: $0 install)"
+    fi
+
+    for f in fractal.lua fractal_tree.lua; do
+        if [ -L "$HYPR_DIR/$f" ] && [ -e "$HYPR_DIR/$f" ]; then
+            ok "$HYPR_DIR/$f -> $(readlink "$HYPR_DIR/$f")"
+        elif [ -L "$HYPR_DIR/$f" ]; then
+            miss "$HYPR_DIR/$f is a broken link (target gone); re-run install"
+        elif [ -f "$HYPR_DIR/$f" ]; then
+            warn "$HYPR_DIR/$f is a regular file, not a link to the clone"
+        else
+            miss "$HYPR_DIR/$f (this is the usual cause of \"module 'hypr.fractal' not found\")"
+        fi
+    done
+
+    if [ -f "$HYPR_DIR/fractal_keys.lua" ]; then
+        ok "$HYPR_DIR/fractal_keys.lua"
+        grep -q caelestia-fractal-map "$HYPR_DIR/fractal_keys.lua" && ok "map key points at caelestia-fractal-map" || warn "SUPER+CTRL+Y does not open the Caelestia map"
+    else
+        miss "$HYPR_DIR/fractal_keys.lua"
+    fi
+
+    if [ -f "$HYPR_LUA" ]; then
+        grep -q 'fractal_keys' "$HYPR_LUA" && ok "$HYPR_LUA requires fractal_keys" || miss "$HYPR_LUA does not require hypr.fractal_keys"
+        grep -q 'package.path' "$HYPR_LUA" && ok "package.path is set in $HYPR_LUA" || warn "no package.path line in $HYPR_LUA: require(\"hypr.fractal\") only works if $CONFIG_ROOT is already on it"
+    else
+        miss "$HYPR_LUA not found (set HYPR_LUA=/path/to/your/hyprland.lua)"
+    fi
+
+    if [ -L "$BIN_DIR/fractal" ] || [ -x "$BIN_DIR/fractal" ]; then ok "fractal CLI in $BIN_DIR"; else miss "fractal CLI in $BIN_DIR"; fi
+    case ":$PATH:" in *":$BIN_DIR:"*) ok "$BIN_DIR is on PATH" ;; *) warn "$BIN_DIR is not on PATH" ;; esac
+
+    if command -v hyprctl >/dev/null && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        echo "  hyprctl configerrors:"
+        hyprctl configerrors 2>&1 | sed 's/^/      /'
+    fi
+    echo
+    if [ "$problems" -eq 0 ]; then echo "Everything looks in place."; else echo "$problems problem(s) found."; fi
+    return 0
+}
+
+# ------------------------------------------------------------------- install --
+install_all() {
+    local yes=0
+    [ "${1:-}" = "--yes" ] && yes=1
+
+    command -v git >/dev/null || die "git is required"
+    command -v jq >/dev/null || warn "jq is missing: the fractal CLI needs it (install it with your package manager)"
+    [ -f "$patch" ] || die "patch not found at $patch"
+
+    echo "1/6 fractal-wm clone ($FRACTAL_DIR @ $PIN + edge-resize patch)"
+    if [ ! -d "$FRACTAL_DIR/.git" ]; then
+        git clone -q "$UPSTREAM" "$FRACTAL_DIR"
+    fi
+    if git -C "$FRACTAL_DIR" apply --check -R "$patch" >/dev/null 2>&1; then
+        ok "patch already applied"
+    else
+        git -C "$FRACTAL_DIR" cat-file -e "$PIN^{commit}" 2>/dev/null || git -C "$FRACTAL_DIR" fetch -q origin
+        git -C "$FRACTAL_DIR" checkout -q "$PIN" 2>/dev/null \
+            || die "cannot check out $PIN in $FRACTAL_DIR (local changes? commit or stash them)"
+        git -C "$FRACTAL_DIR" apply "$patch" || die "the patch does not apply to $PIN"
+        ok "checked out $PIN and applied the patch"
+    fi
+
+    echo "2/6 Lua modules -> $HYPR_DIR"
+    mkdir -p "$HYPR_DIR"
+    for f in fractal.lua fractal_tree.lua; do
+        if [ -e "$HYPR_DIR/$f" ] && [ ! -L "$HYPR_DIR/$f" ]; then
+            die "$HYPR_DIR/$f exists and is not a link; move it away first"
+        fi
+        ln -sfn "$FRACTAL_DIR/lua/$f" "$HYPR_DIR/$f"
+        ok "$f"
+    done
+
+    echo "3/6 keybindings ($HYPR_DIR/fractal_keys.lua)"
+    if [ ! -f "$HYPR_DIR/fractal_keys.lua" ]; then
+        cp "$FRACTAL_DIR/lua/fractal_keys.lua" "$HYPR_DIR/fractal_keys.lua"
+        ok "copied (edit your copy; it is yours)"
+    else
+        ok "kept your existing copy"
+    fi
+    local keys="$HYPR_DIR/fractal_keys.lua"
+    local old='bind("SUPER + CTRL + Y", "Fractal: show tree", "fractal show")'
+    local new="bind(\"SUPER + CTRL + Y\", \"Fractal: map\", \"$here/caelestia-fractal-map toggle\")"
+    if grep -qF "$old" "$keys"; then
+        cp "$keys" "$keys.bak-fractal"
+        local tmp; tmp=$(mktemp)
+        awk -v old="$old" -v new="$new" '{ if (index($0, old)) { sub(/bind\(.*/, new) } print }' "$keys" > "$tmp"
+        cat "$tmp" > "$keys"; rm -f "$tmp"
+        ok "SUPER+CTRL+Y now opens the Caelestia map"
+    elif grep -q caelestia-fractal-map "$keys"; then
+        ok "map key already set"
+    else
+        warn "could not find the SUPER+CTRL+Y line to rewrite; set it yourself to: $here/caelestia-fractal-map toggle"
+    fi
+
+    echo "4/6 fractal CLI -> $BIN_DIR"
+    mkdir -p "$BIN_DIR"
+    ln -sfn "$FRACTAL_DIR/bin/fractal" "$BIN_DIR/fractal"
+    ok "fractal"
+    case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not on your PATH" ;; esac
+
+    echo "5/6 $HYPR_LUA"
+    local block
+    block=$(printf '%s\n' \
+        '-- fractal-wm (added by caelestia-fractal-setup)' \
+        "package.path = \"$CONFIG_ROOT/?.lua;\" .. package.path" \
+        'require("hypr.fractal_keys")')
+    if [ ! -f "$HYPR_LUA" ]; then
+        warn "$HYPR_LUA not found. Add this to your Hyprland Lua config:"
+        printf '%s\n' "$block" | sed 's/^/      /'
+    elif grep -q 'fractal_keys' "$HYPR_LUA"; then
+        ok "already requires fractal_keys"
+    elif tail -n 20 "$HYPR_LUA" | grep -Eq '^[[:space:]]*return[[:space:]]'; then
+        warn "$HYPR_LUA ends with a top-level 'return'; add this before it yourself:"
+        printf '%s\n' "$block" | sed 's/^/      /'
+    else
+        local go=$yes
+        if [ "$yes" -eq 0 ]; then
+            printf '      This will be appended to %s:\n' "$HYPR_LUA"
+            printf '%s\n' "$block" | sed 's/^/        /'
+            printf '      Proceed? [y/N] '
+            read -r ans </dev/tty || ans=n
+            case "$ans" in y | Y | yes) go=1 ;; esac
+        fi
+        if [ "$go" -eq 1 ]; then
+            cp "$HYPR_LUA" "$HYPR_LUA.bak-fractal"
+            printf '\n%s\n' "$block" >> "$HYPR_LUA"
+            ok "added (backup: $HYPR_LUA.bak-fractal)"
+        else
+            warn "skipped; add the block above yourself"
+        fi
+    fi
+
+    echo "6/6 next steps"
+    cat <<MSG
+      hyprctl reload && hyprctl configerrors      # should print nothing
+      fractal on                                  # use the layout on this workspace
+      $here/caelestia-fractal-edges start         # mouse/touch edge handles (add to autostart)
+      $here/caelestia-fractal-setup check             # re-check any time
+MSG
+}
+
+case "${1:-}" in
+    install) shift; install_all "${1:-}" ;;
+    check) check ;;
+    *) echo "usage: $(basename "$0") install [--yes] | check" >&2; exit 2 ;;
+esac

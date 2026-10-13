@@ -18,33 +18,24 @@ breadcrumb or saved framings. Live window thumbnails when the compositor allows.
 
 ## Install
 
-1. **The layout engine** (from upstream; see its README for details):
+One command does the whole setup (clones fractal-wm at the commit our patch targets, applies
+the edge-resize patch, links its Lua modules into `~/.config/hypr`, installs the keybindings with
+`SUPER+CTRL+Y` opening this map, installs the `fractal` CLI, and adds the `require` line and
+Lua `package.path` to your `hyprland.lua` after a backup):
 
-   ```sh
-   git clone https://github.com/cgranier/fractal-wm.git ~/fractal-wm
-   cd ~/fractal-wm
-   ln -s "$PWD/lua/fractal.lua"      ~/.config/hypr/fractal.lua
-   ln -s "$PWD/lua/fractal_tree.lua" ~/.config/hypr/fractal_tree.lua
-   cp lua/fractal_keys.lua ~/.config/hypr/fractal_keys.lua
-   mkdir -p ~/.local/bin && ln -s "$PWD/bin/fractal" ~/.local/bin/fractal   # needs jq, notify-send
-   ```
+```sh
+/path/to/caelestia_ui_toolkit/bin/caelestia-fractal-setup install
+/path/to/caelestia_ui_toolkit/bin/caelestia-fractal-setup check      # what is missing, if anything
+hyprctl reload && hyprctl configerrors && fractal on
+```
 
-   Add `require("hypr.fractal_keys")` to your `hyprland.lua`, then
-   `hyprctl reload && hyprctl configerrors && fractal on`.
+`module 'hypr.fractal' not found` means the Lua modules are not linked into `~/.config/hypr/`
+or `~/.config` is not on Lua's `package.path`; `check` reports both. Needs `git` and `jq`
+(and `notify-send` for `fractal show`).
 
-2. **Point the map key at this overlay.** In your copy `~/.config/hypr/fractal_keys.lua`, replace
-   the `SUPER + CTRL + Y` binding (the `else` branch that runs `fractal show`) with:
-
-   ```lua
-   bind("SUPER + CTRL + Y", "Fractal: map", "/path/to/caelestia_ui_toolkit/bin/caelestia-fractal-map toggle")
-   ```
-
-   Check for clashes with your existing Caelestia bindings (`hyprctl binds`); Super+Ctrl is
-   the upstream default chord.
-
-3. **Optional:** start the overlay at login so the first toggle is instant, by adding to your
-   Hyprland autostart: `/path/to/caelestia_ui_toolkit/bin/caelestia-fractal-map close`
-   (starts the background instance without showing it).
+Check for key clashes with your existing Caelestia bindings (`hyprctl binds`); Super+Ctrl is
+upstream's default chord. To start the overlay at login so the first toggle is instant, add
+`/path/to/caelestia_ui_toolkit/bin/caelestia-fractal-map close` to your Hyprland autostart.
 
 ## Use
 

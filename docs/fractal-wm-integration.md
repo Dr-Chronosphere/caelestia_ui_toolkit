@@ -53,6 +53,9 @@ Hyprland restart or a layout switch.
   `edge` command and node boxes to the status file (tests pass on a fresh upstream checkout);
   `apps/fractal-edges` is the overlay of draggable seam handles. See its README.
 
+- **One-command setup**: `bin/caelestia-fractal-setup install|check` (tested in a throwaway `$HOME` by
+  `integration/test-setup.sh`, including loading the resulting `hyprland.lua` in a Lua VM).
+
 ## Proposed work, in order
 
 1. **Install and try the engine as is** on your system (no code from us): `fractal on`, zoom,

@@ -25,14 +25,16 @@ Handles appear only on workspaces using `lua:fractal`, and only between tiles th
 
 ## Install
 
+`bin/caelestia-fractal-setup install` clones fractal-wm, applies the engine patch and does the rest
+of the Lua setup (see `apps/fractal-map/README.md`). Then:
+
 ```sh
-cd ~/fractal-wm                                   # your clone of upstream
-git apply /path/to/caelestia_ui_toolkit/integration/fractal-wm-edge-resize.patch
 hyprctl reload                                    # the layout hot-swaps
 /path/to/caelestia_ui_toolkit/bin/caelestia-fractal-edges start
 ```
 
-Start it at login from your Hyprland autostart. `stop` and `restart` also work.
+Start it at login from your Hyprland autostart. `stop` and `restart` also work. Applying the
+patch by hand to your own clone also works: `git apply integration/fractal-wm-edge-resize.patch`.
 
 ## Tests
 
