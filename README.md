@@ -73,6 +73,8 @@ python3 tests/run_tests.py                          # toolkit
 node apps/audio-mixer/tests/logic.test.mjs          # mixer logic
 node apps/files/tests/logic.test.mjs                # file manager logic
 python3 apps/files/tests/run_ui_tests.py            # file manager UI on a temp tree
+node --test apps/fractal-map/tests/model.test.js    # fractal map model (vendored upstream tests)
+python3 apps/fractal-map/tests/run_ui_tests.py      # fractal map view
 python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock service
 ```
 
@@ -83,6 +85,8 @@ python3 apps/audio-mixer/tests/run_ui_tests.py      # mixer UI with a mock servi
 
 - [`apps/files`](apps/files): file manager (places sidebar, breadcrumbs, icon/list views, search).
   Launch with `bin/caelestia-files`.
+
+- [`apps/fractal-map`](apps/fractal-map): Caelestia-styled map of your [fractal-wm](https://github.com/cgranier/fractal-wm) window tree (MIT port). Launch with `bin/caelestia-fractal-map`.
 
 Design notes for a Trellis-style zoomable workspace: [`docs/spaces-design.md`](docs/spaces-design.md); assessment of building on fractal-wm: [`docs/fractal-wm-integration.md`](docs/fractal-wm-integration.md).
 

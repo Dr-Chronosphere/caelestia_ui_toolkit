@@ -40,6 +40,14 @@ geometry animation rather than a camera zoom, multi-monitor untested (hidden win
 transparent in a monitor corner and can land on a neighbour), framings are lost across a
 Hyprland restart or a layout switch.
 
+## Progress
+
+- **Step 2 done (untested on a live system): `apps/fractal-map`** is a Caelestia port of the map
+  overlay. `Model.js` and its tests are vendored unchanged, `MapView.qml` is the upstream
+  interaction logic on `CaelestiaUI.Theme` (pure QtQuick, tested headlessly with upstream's
+  fixture), `shell.qml` is the Quickshell wiring, `bin/caelestia-fractal-map` toggles it.
+  Setup for a Lua-config system is in `apps/fractal-map/README.md`.
+
 ## Proposed work, in order
 
 1. **Install and try the engine as is** on your system (no code from us): `fractal on`, zoom,
