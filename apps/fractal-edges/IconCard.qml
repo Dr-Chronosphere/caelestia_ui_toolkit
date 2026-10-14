@@ -76,11 +76,11 @@ Item {
         }
     }
 
-    // How far the card has faded in (0..1). The backdrop reaches full strength at 1/backdropRamp
-    // of it, ahead of the tint and icon, so while a card is still fading in the wallpaper (not
-    // the tiny live window underneath) is what shows through.
+    // How far the card has faded in (0..1). The wallpaper backdrop crossfades with the live window
+    // underneath on a smoothstep of it (gentle at both ends, so it neither pops in nor out);
+    // backdropRamp > 1 makes it reach full strength at 1/backdropRamp of the fade instead.
     property real level: 0
-    property real backdropRamp: 3
+    property real backdropRamp: 1
 
     Anim {
         id: fade
@@ -95,7 +95,10 @@ Item {
 
     Item {
         anchors.fill: parent
-        opacity: Math.min(1, root.level * root.backdropRamp)
+        opacity: {
+            const t = Math.min(1, root.level * root.backdropRamp);
+            return t * t * (3 - 2 * t);
+        }
         visible: root.backdrop.toString() !== "" && root.backdropW > 0 && opacity > 0
         layer.enabled: root._gpu && visible
         layer.effect: MultiEffect {
