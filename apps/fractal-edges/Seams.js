@@ -446,3 +446,10 @@ function piecesFromCovers(thin, axisOfSeam, covers) {
         return r;
     });
 }
+
+// Blur what is behind the icon cards (like a transparent, blurred foot terminal): a Hyprland layer
+// rule on the card namespace. The cards' backing is translucent, so the blur shows through.
+// `ignore_alpha` leaves nearly-transparent pixels (a card mid-fade) unblurred.
+function cardBlurRuleCommand() {
+    return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })';
+}

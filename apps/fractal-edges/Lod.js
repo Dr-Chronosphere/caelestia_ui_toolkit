@@ -34,9 +34,22 @@ function intersects(r, b) {
     return r.x < b.x + b.w && r.x + r.w > b.x && r.y < b.y + b.h && r.y + r.h > b.y;
 }
 
+// How "small" a tile is relative to the threshold: 1 at the threshold, smaller below it.
+function scaleOf(box, minW, minH) {
+    return Math.min(box.w / minW, box.h / minH);
+}
+
+// Card opacity from the tile's scale: invisible at the threshold, fully visible once the tile is
+// FADE below it. So cards fade in as a tile shrinks and out as it grows, instead of popping.
+var FADE = 0.2;
+function alphaFor(scale) {
+    return Math.max(0, Math.min(1, (1 - scale) / FADE));
+}
+
 // The icon cards to show: small windows, inset a little so the card sits inside the tile's
 // borders, minus any card a floating window overlaps (a layer surface would be drawn over it).
-// opts: { minW, minH, inset }.  Returns [{ id, address, label, title, x, y, w, h }] sorted by id.
+// opts: { minW, minH, inset }.
+// Returns [{ id, address, label, title, x, y, w, h, scale, alpha }] sorted by id.
 function cards(status, blockers, opts) {
     opts = opts || {};
     var minW = opts.minW === undefined ? 220 : opts.minW;
@@ -54,7 +67,8 @@ function cards(status, blockers, opts) {
             if (intersects(r, blockers[i]))
                 return;
         }
-        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h });
+        var sc = scaleOf(w.box, minW, minH);
+        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alphaFor(sc) });
     });
     out.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return out;
@@ -74,4 +88,43 @@ function showLabel(w, h) {
 function initial(label) {
     var m = String(label || "").match(/[A-Za-z0-9]/);
     return m ? m[0].toUpperCase() : "?";
+}
+
+// Reconcile the cards on screen with a fresh list. `prev` is the previous map {id: card};
+// `fresh` the allowed cards now; `unblocked` the ids that would show if no floating window were in
+// the way. A card that vanished because a floating window now covers it is dropped at once (it must
+// never be drawn over that window); one that vanished because its tile grew (or the window closed)
+// is kept as `leaving` so it can fade out. `now` is a ms clock.
+// Returns { map, keys }, with keys in a stable (sorted) order.
+function reconcile(prev, fresh, unblocked, now) {
+    var map = {};
+    var i;
+    for (i = 0; i < fresh.length; i++)
+        map[fresh[i].id] = fresh[i];
+    for (var id in prev) {
+        if (map[id])
+            continue;
+        if (unblocked.indexOf(id) >= 0)
+            continue;                                   // blocked: gone immediately
+        var old = prev[id];
+        var copy = {};
+        for (var k in old)
+            copy[k] = old[k];
+        copy.leaving = true;
+        copy.leaveAt = old.leaving ? old.leaveAt : now;  // keep the original time while fading
+        copy.alpha = 0;
+        map[id] = copy;
+    }
+    return { map: map, keys: Object.keys(map).sort() };
+}
+
+// Drop cards that finished fading out (`ms` since they started leaving).
+function purge(map, now, ms) {
+    var out = {};
+    for (var id in map) {
+        if (map[id].leaving && now - map[id].leaveAt >= ms)
+            continue;
+        out[id] = map[id];
+    }
+    return { map: out, keys: Object.keys(out).sort() };
 }

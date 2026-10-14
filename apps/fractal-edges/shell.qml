@@ -40,6 +40,10 @@ ShellRoot {
     readonly property real iconMinW: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_W")) || 220
     readonly property real iconMinH: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_H")) || 140
 
+    // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
+    // FRACTAL_CARD_BLUR=off gives opaque cards instead.
+    readonly property bool cardBlur: Quickshell.env("FRACTAL_CARD_BLUR") !== "off"
+
     // The icon for an app class (window `name` in the status file): its desktop entry's icon,
     // else the lower-cased class as an icon name; the card falls back to a lettered badge.
     function iconFor(cls: string): string {
@@ -146,6 +150,8 @@ ShellRoot {
     // re-apply on `configreloaded`.
     function applyLayerRule(): void {
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
+        if (cardBlur)
+            Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand()]);
     }
 
     Component.onCompleted: {
@@ -276,35 +282,44 @@ ShellRoot {
 
             // Rebuild the handles, unless a drag is in progress: handles stay where they
             // were grabbed, so the drag maths is not disturbed by the layout reflowing.
-            function rebuildCards(): void {
-                const list = (root.iconsEnabled && fractalActive && status) ? Lod.cards(status, blockers, {
-                    "minW": root.iconMinW,
-                    "minH": root.iconMinH,
-                    "inset": 4
-                }) : [];
-                const map = {};
-                const keys = [];
-                for (const c of list) {
-                    map[c.id] = c;
-                    keys.push(c.id);
-                }
-                const newMapKey = JSON.stringify(map);
+            // Apply a { map, keys } result of Lod.reconcile / Lod.purge. Windows are keyed by tile id
+            // and kept alive; only their geometry and fade change.
+            function applyCards(r): void {
+                const newMapKey = JSON.stringify(r.map);
                 if (newMapKey === cardMapKey)
                     return;
                 cardMapKey = newMapKey;
-                const newKeysKey = JSON.stringify(keys);
+                const newKeysKey = JSON.stringify(r.keys);
                 if (newKeysKey !== cardKeysKey) {
                     root.dbg(modelData.name + ": icon cards " + newKeysKey);
                     cardKeysKey = newKeysKey;
+                    // Old entries stay readable until their windows are gone.
                     const merged = {};
                     for (const k in cardMap)
                         merged[k] = cardMap[k];
-                    for (const k in map)
-                        merged[k] = map[k];
+                    for (const k in r.map)
+                        merged[k] = r.map[k];
                     cardMap = merged;
-                    cardKeys = keys;
+                    cardKeys = r.keys;
                 }
-                cardMap = map;
+                cardMap = r.map;
+                if (r.keys.some(k => r.map[k].leaving))
+                    leaveTimer.restart();
+            }
+
+            // Cards follow their tiles live (including while a handle is dragged): they resize with the
+            // tile, fade in as it shrinks below the threshold and out as it grows. A card hidden by a
+            // floating window goes at once; one whose tile grew fades out first.
+            function rebuildCards(): void {
+                const opts = {
+                    "minW": root.iconMinW,
+                    "minH": root.iconMinH,
+                    "inset": 4
+                };
+                const on = root.iconsEnabled && fractalActive && status;
+                const fresh = on ? Lod.cards(status, blockers, opts) : [];
+                const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
+                applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));
             }
 
             function rebuild(): void {
@@ -321,9 +336,9 @@ ShellRoot {
                     mapKey = "";
                     return;
                 }
+                rebuildCards();
                 if (dragging)
                     return;
-                rebuildCards();
                 const all = (fractalActive && status) ? Seams.seams(status, root.grab) : [];
                 // A handle exists while at least one stretch of its seam is grabbable.
                 const keep = all.filter(s => Seams.pieces(s, blockers, 24).length > 0);
@@ -403,6 +418,14 @@ ShellRoot {
                     scope.status = Seams.parse(text());
                 }
                 onLoadFailed: scope.status = null
+            }
+
+            // Drop cards that finished fading out.
+            Timer {
+                id: leaveTimer
+
+                interval: 280
+                onTriggered: scope.applyCards(Lod.purge(scope.cardMap, Date.now(), 260))
             }
 
             // After release the guide springs to the limit, then fades out (so it cross-fades
@@ -493,7 +516,9 @@ ShellRoot {
                             "x": 0,
                             "y": 0,
                             "w": 1,
-                            "h": 1
+                            "h": 1,
+                            "alpha": 0,
+                            "leaving": true
                         })
 
                     screen: scope.modelData
@@ -512,9 +537,21 @@ ShellRoot {
                     color: "transparent"
                     WlrLayershell.namespace: "caelestia-fractal-card"
                     WlrLayershell.layer: WlrLayer.Top
+                    // A faint (or fading) card takes no input: taps go to the window beneath.
+                    mask: Region {
+                        x: 0
+                        y: 0
+                        width: cardItem.interactive ? cardWin.width : 0
+                        height: cardItem.interactive ? cardWin.height : 0
+                    }
 
                     IconCard {
+                        id: cardItem
+
                         anchors.fill: parent
+                        alpha: cardWin.geo.alpha !== undefined ? cardWin.geo.alpha : 1
+                        shown: !cardWin.geo.leaving
+                        tint: root.cardBlur ? 0.62 : 1
                         iconSource: root.iconFor(cardWin.geo.label)
                         label: cardWin.geo.label
                         title: cardWin.geo.title

@@ -28,6 +28,8 @@ git -C "$HOME/fractal-wm" checkout -q -- README.md
 [ "$(grep -c fractal_keys "$HOME/.config/hypr/hyprland.lua")" = 1 ] || fail "require line added once"
 "$repo/bin/caelestia-fractal-setup" check | grep -q MISSING && fail "check reports missing items after install"
 grep -q "caelestia-fractal-map" "$HOME/.config/hypr/fractal_keys.lua" || fail "map key rewritten"
+[ -L "$HOME/.config/hypr/fractal_gestures.lua" ] && [ -e "$HOME/.config/hypr/fractal_gestures.lua" ] || fail "gestures link"
+[ "$(grep -c fractal_gestures "$HOME/.config/hypr/hyprland.lua")" = 1 ] || fail "gestures require line added once"
 [ -L "$HOME/.config/hypr/fractal.lua" ] && [ -e "$HOME/.config/hypr/fractal.lua" ] || fail "engine link"
 
 cat > "$tmp/load.lua" <<LUA

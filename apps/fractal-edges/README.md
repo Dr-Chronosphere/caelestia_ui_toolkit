@@ -35,6 +35,9 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_SETTLE` | `260` | ms for a shrinking cut (and the rubber-band spring-back) to settle |
 | `FRACTAL_EDGE_RECOIL` | `6` | px the line pulls back from a floating window after cutting in (`0` = none) |
 | `FRACTAL_EDGE_DEBUG` | off | `1`: log drags, handle windows appearing/vanishing and floating-window changes with a ms clock (run `qs -p apps/fractal-edges` in a terminal to see it) |
+| `FRACTAL_ICON_MIN_W` / `FRACTAL_ICON_MIN_H` | `220` / `140` | tiles smaller than this get an icon card |
+| `FRACTAL_ICONS` | on | `off` disables the icon cards |
+| `FRACTAL_CARD_BLUR` | on | `off`: opaque cards, no blur rule |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
 Handle windows are keyed by seam and kept alive: each spans its whole seam, and floating windows
@@ -90,7 +93,17 @@ into that window** (it sends the layout's `zoom <id>`, so the window fills the v
 goes away).
 
 - The window underneath keeps running at its tiny size; the card is a layer surface on top of it.
-  Anything that makes a tile bigger (zooming, resizing, closing a neighbour) removes the card.
+- **Cards follow their tile live, including while you drag a handle.** They resize with the tile and
+  fade with its size: invisible at the threshold, fully visible once the tile is 20% below it, using
+  the shell's own effects curve (`Anim.DefaultEffects`, the same `expressiveDefaultEffects` curve the
+  toolkit uses everywhere). A card whose tile grew (or whose window closed) fades out before its
+  window is removed; one hidden by a floating window goes at once, never drawn over it. A faint card
+  (alpha < 0.3) takes no input, so taps reach the window beneath.
+- **Blur:** the card's backing is translucent and a layer rule (`blur = true`, re-applied after
+  reloads) makes Hyprland blur what is behind it, like a transparent, blurred foot terminal.
+  Note that what is behind the card is the tile's own tiny window plus whatever shows through it, so
+  this is a frosted preview of the app over the desktop. `FRACTAL_CARD_BLUR=off` gives opaque cards.
+  Needs `decoration.blur` enabled in your Hyprland config (Caelestia's default).
 - The icon comes from the window class via the desktop entry (`DesktopEntries.heuristicLookup`),
   falling back to the lower-cased class as an icon name, then to a lettered badge.
 - Cards are skipped where a floating window overlaps them (a layer surface would otherwise be

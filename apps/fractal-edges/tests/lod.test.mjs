@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Lod.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,iconSize,showLabel,initial};", ctx);
+vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,iconSize,showLabel,initial,scaleOf,alphaFor,reconcile,purge};", ctx);
 const L = ctx.L;
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -50,4 +50,53 @@ assert.equal(L.showLabel(80, 90), false);
 assert.equal(L.initial("foot"), "F");
 assert.equal(L.initial("--"), "?");
 assert.equal(L.initial(""), "?");
+// --- size-dependent fade -------------------------------------------------------------------------------------
+assert.equal(L.alphaFor(1), 0, "invisible at the threshold");
+assert.equal(L.alphaFor(1.2), 0, "and above it");
+assert.ok(Math.abs(L.alphaFor(0.8) - 1) < 1e-9, "fully visible 20% below it");
+assert.equal(L.alphaFor(0.5), 1);
+assert.ok(Math.abs(L.alphaFor(0.9) - 0.5) < 1e-9, "halfway in between");
+let prevA = 2;
+for (let sc = 1; sc >= 0.7; sc -= 0.02) {              // monotonic: smaller tile => never less visible
+  const a = L.alphaFor(sc);
+  assert.ok(a >= (prevA === 2 ? 0 : 0));
+  assert.ok(prevA === 2 || a >= prevA - 1e-9);
+  prevA = a;
+}
+assert.equal(L.scaleOf({ w: 110, h: 400 }, 220, 140), 0.5, "the tighter dimension decides");
+assert.equal(L.scaleOf({ w: 440, h: 70 }, 220, 140), 0.5);
+const fadeCards = plain(L.cards(status, [], { minW: 320, minH: 100, inset: 4 }));    // c, d are 300 wide: scale 0.9375
+assert.equal(fadeCards.length, 2);
+assert.ok(fadeCards.every(k => Math.abs(k.scale - 300 / 320) < 1e-9));
+assert.ok(fadeCards.every(k => k.alpha > 0 && k.alpha < 1), "just under the threshold: partly faded in");
+const deep = plain(L.cards(status, [], { minW: 500, minH: 100, inset: 4 }));          // scale 0.6
+assert.ok(deep.every(k => k.alpha === 1 && k.address !== undefined), "well under: fully visible");
+
+// --- reconcile / purge -----------------------------------------------------------------------------------------
+const card = (id, extra) => ({ id, address: id, label: id, title: "", x: 0, y: 0, w: 10, h: 10, scale: 0.5, alpha: 1, ...extra });
+let st = plain(L.reconcile({}, [card("c"), card("d")], ["c", "d"], 1000));
+assert.deepEqual(st.keys, ["c", "d"]);
+assert.ok(!st.map.c.leaving);
+// d's tile grew (not in `unblocked` either): it stays, leaving, with alpha 0 and its last geometry
+st = plain(L.reconcile(st.map, [card("c")], ["c"], 1100));
+assert.deepEqual(st.keys, ["c", "d"]);
+assert.equal(st.map.d.leaving, true);
+assert.equal(st.map.d.alpha, 0);
+assert.equal(st.map.d.leaveAt, 1100);
+assert.equal(st.map.d.w, 10, "keeps its last geometry while fading");
+// still leaving a moment later: the original leave time is kept
+st = plain(L.reconcile(st.map, [card("c")], ["c"], 1200));
+assert.equal(st.map.d.leaveAt, 1100);
+// a floating window now covers c: c is unblocked-list member, so it is dropped at once, not faded
+let blocked = plain(L.reconcile({ c: card("c") }, [], ["c"], 1300));
+assert.deepEqual(blocked.keys, [], "blocked by a floating window: gone immediately (never drawn over it)");
+// ...whereas a card whose tile grew while ALSO covered is not in `unblocked`, so it fades
+assert.deepEqual(plain(L.reconcile({ c: card("c") }, [], [], 1300)).keys, ["c"]);
+// the tile shrinks again while d is fading: it returns as a normal card
+st = plain(L.reconcile(st.map, [card("c"), card("d")], ["c", "d"], 1250));
+assert.ok(!st.map.d.leaving);
+// purge drops finished fades only
+let p2 = plain(L.reconcile({ c: card("c"), d: card("d") }, [card("c")], ["c"], 2000));
+assert.deepEqual(plain(L.purge(p2.map, 2100, 260)).keys, ["c", "d"], "still fading at 100 ms");
+assert.deepEqual(plain(L.purge(p2.map, 2300, 260)).keys, ["c"], "gone after 260 ms");
 console.log("lod tests passed");

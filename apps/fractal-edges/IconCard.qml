@@ -15,16 +15,28 @@ Item {
     property string label
     property string title
 
+    // Target opacity from how far below the size threshold the tile is (Lod.alphaFor): the card
+    // fades in as its tile shrinks and out as it grows.
+    property real alpha: 1
+    // False while the card fades out because its tile grew (or the window closed).
+    property bool shown: true
+    // Tint opacity of the card's backing. The host blurs what is behind the card (a layer rule),
+    // so the backing is translucent; use 1 for an opaque card when blur is off.
+    property real tint: 0.62
+
     readonly property bool hasIcon: img.status === Image.Ready
     readonly property real iconEdge: Lod.iconSize(width, height)
+    // Faint cards let taps through (the host also drops the window's input region).
+    readonly property bool interactive: shown && alpha > 0.3
 
     // Tap / click: zoom into this window.
     signal activated
 
-    opacity: 0
+    // Fade with the shell's own effects curve. A new card starts at 0 and fades in.
+    property bool ready: false
+    Component.onCompleted: ready = true
 
-    // Fade in when the card appears (the tile collapsing to an icon).
-    Component.onCompleted: opacity = 1
+    opacity: (ready && shown) ? alpha : 0
 
     Behavior on opacity {
         Anim {
@@ -35,11 +47,12 @@ Item {
     StyledRect {
         anchors.fill: parent
         radius: Theme.rounding.medium
-        color: Theme.palette.m3surfaceContainerHigh
+        color: Qt.alpha(Theme.palette.m3surfaceContainerHigh, root.tint)
         border.width: 1
-        border.color: Theme.palette.m3outlineVariant
+        border.color: Qt.alpha(Theme.palette.m3outlineVariant, 0.7)
 
         StateLayer {
+            disabled: !root.interactive
             onClicked: root.activated()
         }
 

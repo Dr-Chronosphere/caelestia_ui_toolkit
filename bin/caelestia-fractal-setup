@@ -76,6 +76,22 @@ check() {
         miss "$HYPR_LUA not found (set HYPR_LUA=/path/to/your/hyprland.lua)"
     fi
 
+    if [ -L "$HYPR_DIR/fractal_gestures.lua" ] && [ -e "$HYPR_DIR/fractal_gestures.lua" ]; then
+        ok "$HYPR_DIR/fractal_gestures.lua"
+    else
+        miss "$HYPR_DIR/fractal_gestures.lua (pinch-zoom gestures; run install)"
+    fi
+    if [ -f "$HYPR_LUA" ]; then
+        grep -q 'fractal_gestures' "$HYPR_LUA" && ok "$HYPR_LUA requires fractal_gestures" || miss "$HYPR_LUA does not require hypr.fractal_gestures (run install)"
+    fi
+    glog="${XDG_STATE_HOME:-$HOME/.local/state}/fractal-wm/gestures.log"
+    if [ -f "$glog" ]; then
+        echo "  gestures.log (what Hyprland did with the gestures at the last reload):"
+        sed 's/^/      /' "$glog"
+    else
+        warn "no gestures.log yet: it is written when Hyprland loads the config (hyprctl reload)"
+    fi
+
     if [ -L "$BIN_DIR/fractal" ] || [ -x "$BIN_DIR/fractal" ]; then ok "fractal CLI in $BIN_DIR"; else miss "fractal CLI in $BIN_DIR"; fi
     case ":$PATH:" in *":$BIN_DIR:"*) ok "$BIN_DIR is on PATH" ;; *) warn "$BIN_DIR is not on PATH" ;; esac
 
@@ -97,7 +113,7 @@ install_all() {
     command -v jq >/dev/null || warn "jq is missing: the fractal CLI needs it (install it with your package manager)"
     [ -f "$patch" ] || die "patch not found at $patch"
 
-    echo "1/6 fractal-wm clone ($FRACTAL_DIR @ $PIN + edge-resize patch)"
+    echo "1/7 fractal-wm clone ($FRACTAL_DIR @ $PIN + edge-resize patch)"
     if [ ! -d "$FRACTAL_DIR/.git" ]; then
         git clone -q "$UPSTREAM" "$FRACTAL_DIR"
     fi
@@ -121,7 +137,7 @@ install_all() {
         ok "checked out $PIN and applied the patch"
     fi
 
-    echo "2/6 Lua modules -> $HYPR_DIR"
+    echo "2/7 Lua modules -> $HYPR_DIR"
     mkdir -p "$HYPR_DIR"
     for f in fractal.lua fractal_tree.lua; do
         if [ -e "$HYPR_DIR/$f" ] && [ ! -L "$HYPR_DIR/$f" ]; then
@@ -131,7 +147,7 @@ install_all() {
         ok "$f"
     done
 
-    echo "3/6 keybindings ($HYPR_DIR/fractal_keys.lua)"
+    echo "3/7 keybindings ($HYPR_DIR/fractal_keys.lua)"
     if [ ! -f "$HYPR_DIR/fractal_keys.lua" ]; then
         cp "$FRACTAL_DIR/lua/fractal_keys.lua" "$HYPR_DIR/fractal_keys.lua"
         ok "copied (edit your copy; it is yours)"
@@ -153,13 +169,13 @@ install_all() {
         warn "could not find the SUPER+CTRL+Y line to rewrite; set it yourself to: $here/caelestia-fractal-map toggle"
     fi
 
-    echo "4/6 fractal CLI -> $BIN_DIR"
+    echo "4/7 fractal CLI -> $BIN_DIR"
     mkdir -p "$BIN_DIR"
     ln -sfn "$FRACTAL_DIR/bin/fractal" "$BIN_DIR/fractal"
     ok "fractal"
     case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not on your PATH" ;; esac
 
-    echo "5/6 $HYPR_LUA"
+    echo "5/7 $HYPR_LUA"
     local block
     block=$(printf '%s\n' \
         '-- fractal-wm (added by caelestia-fractal-setup)' \
@@ -191,11 +207,49 @@ install_all() {
         fi
     fi
 
-    echo "6/6 next steps"
+    echo "6/7 pinch-zoom gestures (touchpad)"
+    gfile="$HYPR_DIR/fractal_gestures.lua"
+    if [ -e "$gfile" ] && [ ! -L "$gfile" ]; then
+        warn "$gfile exists and is not a link; leaving it alone"
+    else
+        ln -sfn "$repo/integration/lua/fractal_gestures.lua" "$gfile"
+        ok "fractal_gestures.lua"
+    fi
+    gblock=$(printf '%s\n' \
+        '-- fractal-wm pinch zoom (added by caelestia-fractal-setup)' \
+        'require("hypr.fractal_gestures").setup()')
+    if [ ! -f "$HYPR_LUA" ]; then
+        warn "add this to your Hyprland Lua config after the fractal_keys line:"
+        printf '%s\n' "$gblock" | sed 's/^/      /'
+    elif grep -q 'fractal_gestures' "$HYPR_LUA"; then
+        ok "already requires fractal_gestures"
+    elif tail -n 20 "$HYPR_LUA" | grep -Eq '^[[:space:]]*return[[:space:]]'; then
+        warn "$HYPR_LUA ends with a top-level 'return'; add this before it yourself:"
+        printf '%s\n' "$gblock" | sed 's/^/      /'
+    else
+        ggo=$yes
+        if [ "$yes" -eq 0 ]; then
+            printf '      This will be appended to %s:\n' "$HYPR_LUA"
+            printf '%s\n' "$gblock" | sed 's/^/        /'
+            printf '      Proceed? [y/N] '
+            read -r ans </dev/tty || ans=n
+            case "$ans" in y | Y | yes) ggo=1 ;; esac
+        fi
+        if [ "$ggo" -eq 1 ]; then
+            [ -f "$HYPR_LUA.bak-fractal" ] || cp "$HYPR_LUA" "$HYPR_LUA.bak-fractal"
+            printf '\n%s\n' "$gblock" >> "$HYPR_LUA"
+            ok "added"
+        else
+            warn "skipped; add the lines above yourself"
+        fi
+    fi
+
+    echo "7/7 next steps"
     cat <<MSG
       hyprctl reload && hyprctl configerrors      # should print nothing
       fractal on                                  # use the layout on this workspace
-      $here/caelestia-fractal-edges start         # mouse/touch edge handles (add to autostart)
+      $here/caelestia-fractal-edges start         # mouse/touch edge handles + icon cards (add to autostart)
+      # after the reload: pinch gestures are recorded in ~/.local/state/fractal-wm/gestures.log (see check)
       $here/caelestia-fractal-setup check             # re-check any time
 MSG
 }

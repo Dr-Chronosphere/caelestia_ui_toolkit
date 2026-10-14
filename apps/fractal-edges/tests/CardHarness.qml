@@ -18,6 +18,15 @@ Rectangle {
     function opacities() {
         return JSON.stringify([big.opacity, small.opacity]);
     }
+    function setAlpha(which, a) {
+        (which === "big" ? big : small).alpha = a;
+    }
+    function setShown(which, v) {
+        (which === "big" ? big : small).shown = v;
+    }
+    function interactive(which) {
+        return (which === "big" ? big : small).interactive;
+    }
     function labelShown(which) {
         return which === "big" ? big.labelVisible : small.labelVisible;
     }
