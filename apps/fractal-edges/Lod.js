@@ -53,17 +53,22 @@ function alphaOut(scale) {
     return Math.max(0, Math.min(1, 1 - (scale - 1) / FADE));
 }
 
-// Next opacity given where the card was: shrinking can only raise it (to the fade-in curve),
-// growing can only lower it (to the fade-out curve), a still tile keeps it. `prev` is the card's
-// previous { alpha, scale } (undefined for a new card).
+// Next { alpha, mode } given where the card was. A fade follows the curve of the direction that
+// started it and is retraced if you reverse mid-fade: mode "in" (started by shrinking past the
+// threshold) uses alphaFor, mode "out" (started by growing past it) uses alphaOut. The mode only
+// changes at the ends: fully in hands over to "out", fully out hands over to "in".
+// `prev` is the card's previous { mode } (undefined for a new card).
 function nextAlpha(prev, scale) {
-    if (!prev || prev.leaving)
-        return alphaFor(scale);
-    if (scale < prev.scale)
-        return Math.max(prev.alpha, alphaFor(scale));
-    if (scale > prev.scale)
-        return Math.min(prev.alpha, alphaOut(scale));
-    return prev.alpha;
+    var mode = prev && !prev.leaving && prev.mode ? prev.mode : "in";
+    var a = mode === "in" ? alphaFor(scale) : alphaOut(scale);
+    if (mode === "in" && a >= 1) {
+        mode = "out";
+        a = alphaOut(scale);
+    } else if (mode === "out" && a <= 0) {
+        mode = "in";
+        a = alphaFor(scale);
+    }
+    return { alpha: a, mode: mode };
 }
 
 // The icon cards to show: small windows, minus any card a floating window overlaps (a layer
@@ -117,7 +122,9 @@ function cards(status, blockers, opts) {
     smallWindows(status, minW * (1 + FADE), minH * (1 + FADE)).forEach(function (w) {
         var sc = scaleOf(w.box, minW, minH);
         // Once the layout is still: below the threshold the card is complete, above it is gone.
-        var alpha = opts.idle ? (sc < 1 ? 1 : 0) : nextAlpha(prev[w.id], sc);
+        var na = nextAlpha(prev[w.id], sc);
+        var alpha = opts.idle ? (sc < 1 ? 1 : 0) : na.alpha;
+        var mode = opts.idle ? (sc < 1 ? "out" : "in") : na.mode;
         if (alpha <= 0 && sc >= 1)
             return;
         var r = cardRect(w.box, status.area, inset, outset, opts.bounds);
@@ -125,7 +132,7 @@ function cards(status, blockers, opts) {
             if (intersects(r, blockers[i]))
                 return;
         }
-        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alpha });
+        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alpha, mode: mode });
     });
     out.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return out;
