@@ -664,7 +664,7 @@ ShellRoot {
                 exclusionMode: ExclusionMode.Ignore
                 color: "transparent"
                 mask: Region {}
-                WlrLayershell.namespace: "caelestia-fractal-guide"
+                WlrLayershell.namespace: "fractal-edges-guide"
                 WlrLayershell.layer: WlrLayer.Overlay
 
                 Guide {
@@ -718,7 +718,7 @@ ShellRoot {
                 }
                 exclusionMode: ExclusionMode.Ignore
                 color: "transparent"
-                WlrLayershell.namespace: "caelestia-fractal-card"
+                WlrLayershell.namespace: "fractal-edges-card"
                 WlrLayershell.layer: WlrLayer.Top
                 mask: Region {
                     CardRegion { rect: scope.cardRect(0) }
@@ -846,7 +846,7 @@ ShellRoot {
                     implicitHeight: Math.max(1, Math.round(geo.h))
                     exclusionMode: ExclusionMode.Ignore
                     color: "transparent"
-                    WlrLayershell.namespace: "caelestia-fractal-edge"
+                    WlrLayershell.namespace: "fractal-edges-edge"
                     WlrLayershell.layer: WlrLayer.Overlay
                     mask: Region {
                         Region {

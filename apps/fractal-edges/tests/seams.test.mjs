@@ -211,7 +211,7 @@ for (let k = 0; k <= 10; k++) {
 assert.equal(lastCut, 0);
 
 // the layer rule that stops the ghost animation
-assert.equal(S.layerRuleCommand(), 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide|card)" }, no_anim = true })');
+assert.equal(S.layerRuleCommand(), 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "fractal-edges-(edge|guide|card)" }, no_anim = true, blur = false })');
 // --- whole-seam handles ---------------------------------------------------------------------------------
 const wholeSeam = { key: "a|b", axis: "x", x: 692, y: 40, w: 16, h: 800, ratio: 0.5, span: 1200 };
 const pc = (bl, min) => plain(S.pieces(wholeSeam, bl, min));

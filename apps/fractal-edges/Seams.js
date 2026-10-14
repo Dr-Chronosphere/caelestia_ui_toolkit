@@ -355,7 +355,7 @@ function guidePieces(thin, axisOfSeam, spans, prevT, targetT, e) {
 // overlay's surfaces (the guide line and handles are layer surfaces, so without this a "ghost"
 // of the last frame slides away whenever one is hidden).
 function layerRuleCommand() {
-    return 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide|card)" }, no_anim = true })';
+    return 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "fractal-edges-(edge|guide|card)" }, no_anim = true, blur = false })';
 }
 
 // --- Whole-seam handles ----------------------------------------------------------------------------

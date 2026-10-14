@@ -72,10 +72,10 @@ At the start of a drag the guide's ratio is set before its seam, so it never app
 previous drag's ratio (that stale first frame used to show a full-size line that then cut in).
 
 The overlay also adds a Hyprland *layer rule* with `no_anim = true` for its own surfaces
-(`caelestia-fractal-edge`, `caelestia-fractal-guide`) and re-applies it after a config reload.
+(`fractal-edges-edge`, `fractal-edges-guide`, `fractal-edges-card`) and re-applies it after a config reload.
 Without it, your `layersIn`/`layersOut` slide-and-fade animations make a "ghost" of the guide line
 float away whenever it is hidden. To make the rule permanent instead, add this to your Hyprland
-Lua config: `hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })`.
+Lua config: `hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "fractal-edges-(edge|guide|card)" }, no_anim = true })`.
 
 Each seam knows how far the engine will let it move (the tiles' weights are kept within 0.2-5,
 mirrored in `Seams.js`). Dragging past that limit does not just stop: the guide line stretches
@@ -212,3 +212,10 @@ and the worst gap (stalls in the overlay itself), how many layout status updates
 happened, and rebuild cost; each rebuild also prints every card's `scale`, `alpha` and fade `mode`.
 Many slow frames means the overlay is stalling; none but visible stutter means the lag is Hyprland
 or the status file's update rate (compare `status=` to the drag speed).
+
+## Layer namespaces
+
+The overlay's surfaces are `fractal-edges-edge`, `-guide` and `-card`. They deliberately do **not**
+start with `caelestia-`: Caelestia's Hyprland config blurs layers matching `caelestia-.*`, and that
+rule was blurring whatever was behind a card (the live app) as soon as the card was opaque enough to
+pass the rule's alpha cutoff, a sudden pop mid-fade. The overlay's rule also sets `blur = false`.
