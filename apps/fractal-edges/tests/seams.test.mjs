@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -212,4 +212,12 @@ assert.equal(lastCut, 0);
 
 // the layer rule that stops the ghost animation
 assert.equal(S.layerRuleCommand(), 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })');
+// --- whole-seam handles ---------------------------------------------------------------------------------
+const wholeSeam = { key: "a|b", axis: "x", x: 692, y: 40, w: 16, h: 800, ratio: 0.5, span: 1200 };
+const pc = (bl, min) => plain(S.pieces(wholeSeam, bl, min));
+assert.deepEqual(pc([], 24), [{ x: 692, y: 40, w: 16, h: 800 }], "no blockers: the whole seam");
+assert.equal(pc([{ x: 600, y: 100, w: 200, h: 150 }], 24).length, 2, "a window in the middle: two pieces");
+assert.equal(pc([{ x: 600, y: 60, w: 200, h: 770 }], 24).length, 0, "only slivers left: nothing to grab");
+assert.equal(pc([{ x: 600, y: 60, w: 200, h: 770 }], 5).length, 2, "minLen is a parameter");
+assert.deepEqual(plain(S.shiftRects([{ x: 700, y: 100, w: 5, h: 6 }], 692, 40)), [{ x: 8, y: 60, w: 5, h: 6 }]);
 console.log("seams tests passed");

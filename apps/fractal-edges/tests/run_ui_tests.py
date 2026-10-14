@@ -104,6 +104,59 @@ drag(100, steps=2)                                  # 0.5 -> 0.6, inside the lim
 m = [p.split() for p in log().split("|") if p.startswith("move")][-1]
 check(abs(float(m[1]) - 0.6) < 1e-9 and abs(float(m[2]) - 0.6) < 1e-9, f"inside the limits the guide is exactly the tile ratio ({m})")
 
+# ---- whole-seam handle: floating windows cut what is grabbable and what is drawn -----------------
+import json as _json
+tall = {"key": "a|b", "a": "a", "b": "b", "axis": "x", "ratio": 0.5, "span": 1000, "lo": 0.1, "hi": 0.9, "x": 0, "y": 0, "w": 16, "h": 400}
+ask("setSeam", tall)
+ask("setBlockers", [{"x": -10, "y": 150, "w": 50, "h": 100}])      # layout coords; overlaps the seam over y=150..250
+QTest.qWait(150)
+hit = _json.loads(str(ask("hitJson")))
+check([(r["y"], r["h"]) for r in hit] == [(0, 150), (250, 150)], f"input only where nothing floats over the seam ({hit})")
+check(all(r["x"] == 0 and r["w"] == 16 for r in hit), "pieces keep the seam's full thickness")
+
+# hover the handle: the bar shows, cut around the floating window (strip sits at window x=100, y=50)
+QTest.mouseMove(view, QPoint(108, 80))
+QTest.qWait(400)
+img = view.grabWindow()
+barlike = lambda x, y: img.pixelColor(x, y).green() < 245          # pink bar over white, not plain white
+check(barlike(108, 120) and barlike(108, 420), "bar drawn on both sides of the floating window")
+check(not barlike(108, 250), "bar cut where the floating window covers the seam (window y = 200..300)")
+
+
+def band_count():
+    g = view.grabWindow()
+    return sum(1 for y in range(205, 295) if g.pixelColor(108, y).green() < 245)
+
+
+# The seam moves out from under the window (as after a drag): the bar must GROW smoothly.
+QMetaObject.invokeMethod(root, "setSeam", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", dict(tall, x=100)))
+grow = []
+for _ in range(10):
+    grow.append(band_count())
+    QTest.qWait(14)
+QTest.qWait(300)
+grow.append(band_count())
+check(grow[-1] >= 85, f"bar is whole again once clear of the window ({grow[-1]})")
+check(all(b >= a for a, b in zip(grow, grow[1:])), f"and grew monotonically ({grow})")
+check(any(5 < v < 80 for v in grow), f"through partial states, so it animates and does not pop ({grow})")
+
+# And the reverse: a handle that STARTS cut still grows back when the window leaves.
+ask("setSeam", tall)
+QTest.qWait(400)
+check(band_count() <= 5, "starts cut")
+QMetaObject.invokeMethod(root, "setSeam", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", dict(tall, x=100)))
+grow2 = []
+for _ in range(10):
+    grow2.append(band_count())
+    QTest.qWait(14)
+QTest.qWait(300)
+grow2.append(band_count())
+check(grow2[-1] >= 85, f"a handle that started cut grows back to full ({grow2[-1]})")
+check(any(5 < v < 80 for v in grow2), f"smoothly ({grow2})")
+ask("setBlockers", [])
+ask("setSeam", tall)
+QTest.mouseMove(view, QPoint(2000, 400))
+
 # Moves do not fire without a press
 ask("clearLog")
 QTest.mouseMove(view, QPoint(300, 58))

@@ -215,13 +215,18 @@ ShellRoot {
             readonly property real originY: mon ? (mon.y !== undefined ? mon.y : (mon.lastIpcObject ? mon.lastIpcObject.y : 0)) : 0
 
             property var status: null
-            property var shownSeams: []
-            property string shownKey: ""
+            // Handle windows are keyed by seam ("a|b") and kept alive; only their geometry
+            // updates. The window delegates read their seam from `seamMap`.
+            property var seamKeys: []
+            property var seamMap: ({})
+            property string keysKey: ""
+            property string mapKey: ""
             property var blockers: []
             property string blockersKey: ""
             property bool dragging: false
             property var dragSeam: null        // the seam being dragged, for the guide line
             property bool settling: false
+            property bool fadeGuide: false
             property real dragRatio: 0
             property var pendingSeam: null
             property real pendingRatio: 0
@@ -232,18 +237,40 @@ ShellRoot {
                 if (root.shuttingDown) {
                     dragging = false;
                     dragSeam = null;
-                    shownSeams = [];
+                    seamKeys = [];
+                    seamMap = ({});
+                    keysKey = "";
+                    mapKey = "";
                     return;
                 }
                 if (dragging)
                     return;
-                const list = (fractalActive && status) ? Seams.clipSeams(Seams.seams(status, root.grab), blockers, 24) : [];
-                // Only replace the handle windows when something actually changed.
-                const key = JSON.stringify(list);
-                if (key === shownKey)
+                const all = (fractalActive && status) ? Seams.seams(status, root.grab) : [];
+                // A handle exists while at least one stretch of its seam is grabbable.
+                const keep = all.filter(s => Seams.pieces(s, blockers, 24).length > 0);
+                const map = {};
+                const keys = [];
+                for (const s of keep) {
+                    map[s.key] = s;
+                    keys.push(s.key);
+                }
+                const newMapKey = JSON.stringify(map);
+                if (newMapKey === mapKey)
                     return;
-                shownKey = key;
-                shownSeams = list;
+                mapKey = newMapKey;
+                const newKeysKey = JSON.stringify(keys);
+                if (newKeysKey !== keysKey) {
+                    keysKey = newKeysKey;
+                    // Old entries stay readable until their windows are gone.
+                    const merged = {};
+                    for (const k in seamMap)
+                        merged[k] = seamMap[k];
+                    for (const k in map)
+                        merged[k] = map[k];
+                    seamMap = merged;
+                    seamKeys = keys;
+                }
+                seamMap = map;
             }
 
             function updateBlockers(): void {
@@ -297,13 +324,26 @@ ShellRoot {
                 onLoadFailed: scope.status = null
             }
 
+            // After release the guide springs to the limit, then fades out (so it cross-fades
+            // with the handle bar instead of vanishing).
             Timer {
                 id: settleTimer
 
                 interval: 240
                 onTriggered: {
+                    scope.fadeGuide = true;
+                    fadeTimer.restart();
+                }
+            }
+
+            Timer {
+                id: fadeTimer
+
+                interval: 190
+                onTriggered: {
                     scope.dragSeam = null;
                     scope.settling = false;
+                    scope.fadeGuide = false;
                 }
             }
 
@@ -347,61 +387,132 @@ ShellRoot {
                     originY: scope.originY
                     blockers: scope.blockers
                     settling: scope.settling
+                    fading: scope.fadeGuide
                 }
             }
 
             Variants {
-                model: scope.shownSeams
+                model: scope.seamKeys
 
                 delegate: PanelWindow {
                     id: win
 
-                    required property var modelData
+                    required property string modelData
+
+                    readonly property var seam: scope.seamMap[modelData]
+                    readonly property bool ready: seam !== undefined && seam !== null
+                    // Placeholder while the seam is being removed, so bindings never see undefined.
+                    readonly property var geo: ready ? seam : ({
+                            "key": "",
+                            "axis": "x",
+                            "x": 0,
+                            "y": 0,
+                            "w": 1,
+                            "h": 1,
+                            "ratio": 0.5,
+                            "span": 1
+                        })
+
+                    // Input only where nothing floats over the seam; the window itself spans the
+                    // whole seam so it never has to be rebuilt when a window moves.
+                    function hit(i: int): var {
+                        const r = strip.hitRects[i];
+                        return r ? r : {
+                            "x": 0,
+                            "y": 0,
+                            "w": 0,
+                            "h": 0
+                        };
+                    }
 
                     screen: scope.modelData
+                    visible: ready
                     anchors {
                         top: true
                         left: true
                     }
                     margins {
-                        left: Math.max(0, Math.round(modelData.x - scope.originX))
-                        top: Math.max(0, Math.round(modelData.y - scope.originY))
+                        left: Math.max(0, Math.round(geo.x - scope.originX))
+                        top: Math.max(0, Math.round(geo.y - scope.originY))
                     }
-                    implicitWidth: Math.max(1, Math.round(modelData.w))
-                    implicitHeight: Math.max(1, Math.round(modelData.h))
+                    implicitWidth: Math.max(1, Math.round(geo.w))
+                    implicitHeight: Math.max(1, Math.round(geo.h))
                     exclusionMode: ExclusionMode.Ignore
                     color: "transparent"
                     WlrLayershell.namespace: "caelestia-fractal-edge"
                     WlrLayershell.layer: WlrLayer.Top
+                    mask: Region {
+                        Region {
+                            x: win.hit(0).x
+                            y: win.hit(0).y
+                            width: win.hit(0).w
+                            height: win.hit(0).h
+                        }
+                        Region {
+                            x: win.hit(1).x
+                            y: win.hit(1).y
+                            width: win.hit(1).w
+                            height: win.hit(1).h
+                        }
+                        Region {
+                            x: win.hit(2).x
+                            y: win.hit(2).y
+                            width: win.hit(2).w
+                            height: win.hit(2).h
+                        }
+                        Region {
+                            x: win.hit(3).x
+                            y: win.hit(3).y
+                            width: win.hit(3).w
+                            height: win.hit(3).h
+                        }
+                        Region {
+                            x: win.hit(4).x
+                            y: win.hit(4).y
+                            width: win.hit(4).w
+                            height: win.hit(4).h
+                        }
+                        Region {
+                            x: win.hit(5).x
+                            y: win.hit(5).y
+                            width: win.hit(5).w
+                            height: win.hit(5).h
+                        }
+                    }
 
                     EdgeStrip {
+                        id: strip
+
                         anchors.fill: parent
-                        seam: win.modelData
+                        seam: win.geo
+                        blockers: scope.blockers
                         onDragStarted: {
                             root.dragBegan();
                             settleTimer.stop();
+                            fadeTimer.stop();
+                            scope.fadeGuide = false;
                             scope.settling = false;
                             scope.dragging = true;
-                            scope.dragSeam = win.modelData;
-                            scope.dragRatio = win.modelData.ratio;
+                            scope.dragSeam = win.geo;
+                            scope.dragRatio = win.geo.ratio;
                         }
                         onDragMoved: (ratio, shown) => {
                             scope.dragRatio = shown;
                             if (!root.live)
                                 return;
                             if (throttle.running) {
-                                scope.pendingSeam = win.modelData;
+                                scope.pendingSeam = win.geo;
                                 scope.pendingRatio = ratio;
                             } else {
-                                scope.send(win.modelData, ratio);
+                                scope.send(win.geo, ratio);
                                 throttle.start();
                             }
                         }
                         onDragFinished: ratio => {
                             throttle.stop();
                             scope.pendingSeam = null;
-                            scope.send(win.modelData, ratio);
-                            // The line springs back from any overshoot to the limit, then goes.
+                            scope.send(win.geo, ratio);
+                            // The line springs back from any overshoot to the limit, then fades.
                             scope.settling = true;
                             scope.dragRatio = ratio;
                             settleTimer.restart();

@@ -34,6 +34,13 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
+Handle windows are keyed by seam and kept alive: each spans its whole seam, and floating windows
+only cut the *input region* (a mask of the grabbable stretches) and the visible bar. Because the
+window is never rebuilt, a hovered handle does not blink out after you let go, a handle that
+starts cut can grow back to its full length, and that growth is animated like the guide's cuts
+(they share `CutLine.qml`). After a drag the guide springs to the limit, then fades out so it
+cross-fades with the handle bar instead of vanishing.
+
 When the guide line slides sideways past a floating window's edge, the cut around that window
 opens or closes over about 140 ms (around the window's centre) instead of popping.
 

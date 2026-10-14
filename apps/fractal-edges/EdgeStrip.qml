@@ -2,28 +2,40 @@ import QtQuick
 import CaelestiaUI
 import "Seams.js" as Seams
 
-// One draggable handle on the seam between two tiles. Pure QtQuick: the host decides
-// where the item lives and what to do with the ratios.
+// One draggable handle on the seam between two tiles. Pure QtQuick: the host decides where the
+// window lives and what to do with the ratios.
+//
+// The item spans its WHOLE seam and stays alive; floating windows only cut what is grabbable
+// (`hitRects`, which the host turns into the window's input mask) and what is drawn (the hover
+// bar, whose cuts open and close smoothly). Rebuilding the window whenever a floating window
+// moved made the bar blink out and pop back; keeping it makes the hover state survive too.
 //
 // Pointer and touch both work: Qt turns a touch on a MouseArea into press/move/release.
-// The drag is measured as a delta from the press point, so the strip may stay put (the
-// host freezes it) or move without disturbing the math.
+// The drag is measured as a delta from the press point, so the item may stay put (the host
+// freezes it during a drag) or move without disturbing the math.
 Item {
     id: root
 
-    // One entry from Seams.seams()
+    // One entry from Seams.seams(), whole seam, layout coordinates. This item's top-left is at
+    // (seam.x, seam.y).
     required property var seam
+    // Floating-window rects in layout coordinates (Seams.floatingRects).
+    property var blockers: []
 
-    // Idle visibility of the handle line. 0 = invisible until hovered/pressed.
+    // Idle visibility of the handle bar. 0 = invisible until hovered/pressed.
     property real idleOpacity: 0
     // The host draws the line that follows the pointer while dragging (this item is frozen
-    // in place during a drag), so hide our own line while pressed.
+    // in place during a drag), so hide our own bar while pressed.
     property bool externalGuide: true
+    // How far (px) the guide may be pulled past the limit before it stops giving.
+    property real give: 40
+    property real barWidth: 3
+
     readonly property bool dragging: area.pressed
     readonly property bool horizontal: seam.axis === "x"   // row seam: drag left/right
 
-    // How far (px) the guide may be pulled past the limit before it stops giving.
-    property real give: 40
+    // The stretches that can take input now (this item's coordinates), for the window's mask.
+    readonly property var hitRects: Seams.shiftRects(Seams.pieces(seam, blockers, 24), seam.x, seam.y)
 
     signal dragStarted
     // Emitted on every pointer move while dragging. `ratio` is what the tiles can actually do
@@ -42,12 +54,22 @@ Item {
         return Seams.rubberBand(rawFor(pos, start), seam, give);
     }
 
-    // The visible line: thin, centred in the (wider) grab area.
-    Rectangle {
-        anchors.centerIn: parent
-        width: root.horizontal ? 3 : parent.width
-        height: root.horizontal ? parent.height : 3
-        radius: 2
+    // The visible bar: thin, centred in the (wider) grab area, cut around floating windows.
+    CutLine {
+        anchors.fill: parent
+        line: root.horizontal ? {
+            "x": (root.width - root.barWidth) / 2,
+            "y": 0,
+            "w": root.barWidth,
+            "h": root.height
+        } : {
+            "x": 0,
+            "y": (root.height - root.barWidth) / 2,
+            "w": root.width,
+            "h": root.barWidth
+        }
+        axis: root.seam.axis
+        blockers: Seams.shiftRects(root.blockers, root.seam.x, root.seam.y)
         color: Theme.palette.m3primary
         opacity: area.pressed ? (root.externalGuide ? 0 : 0.9) : area.containsMouse ? 0.6 : root.idleOpacity
 

@@ -357,3 +357,22 @@ function guidePieces(thin, axisOfSeam, spans, prevT, targetT, e) {
 function layerRuleCommand() {
     return 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })';
 }
+
+// --- Whole-seam handles ----------------------------------------------------------------------------
+// A handle window spans its whole seam and stays alive; floating windows only cut its input
+// region and its visible bar. These are the stretches (layout coordinates) that can take input
+// right now: the seam minus blocked parts, dropping pieces too short to grab.
+function pieces(seam, blockers, minLen) {
+    minLen = minLen === undefined ? 24 : minLen;
+    var parts = (blockers && blockers.length) ? clipRect(seam, seam.axis, blockers) : [{ x: seam.x, y: seam.y, w: seam.w, h: seam.h }];
+    return parts.filter(function (r) {
+        return (seam.axis === "x" ? r.h : r.w) >= minLen;
+    });
+}
+
+// Shift rects from layout coordinates into a local frame whose origin is (ox, oy).
+function shiftRects(rects, ox, oy) {
+    return (rects || []).map(function (r) {
+        return { x: r.x - ox, y: r.y - oy, w: r.w, h: r.h };
+    });
+}
