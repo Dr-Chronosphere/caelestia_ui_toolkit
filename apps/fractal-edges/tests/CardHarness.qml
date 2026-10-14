@@ -21,6 +21,13 @@ Rectangle {
     function setAlpha(which, a) {
         (which === "big" ? big : small).alpha = a;
     }
+    function setBackdrop(url) {
+        big.backdrop = url;
+        big.backdropX = 10;
+        big.backdropY = 10;
+        big.backdropW = 500;
+        big.backdropH = 300;
+    }
     function setShown(which, v) {
         (which === "big" ? big : small).shown = v;
     }

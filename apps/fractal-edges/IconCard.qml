@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import CaelestiaUI
 import "Lod.js" as Lod
 
@@ -27,6 +28,16 @@ Item {
     property real tint: 0.62
     // Corner radius; negative uses the theme's medium rounding.
     property real cornerRadius: -1
+    // A pre-blurred stand-in for the desktop behind the card: the wallpaper decoded at a tiny size
+    // (so scaling it back up is the blur) and positioned so the card shows the part of it that
+    // lies at the card's place on the screen. Empty = no backdrop (translucent tint only).
+    property url backdrop
+    property real backdropX: 0
+    property real backdropY: 0
+    property real backdropW: 0
+    property real backdropH: 0
+    property int backdropShrink: 12
+    readonly property bool _gpu: GraphicsInfo.api !== GraphicsInfo.Software
 
     readonly property bool hasIcon: img.status === Image.Ready
     readonly property real iconEdge: Lod.iconSize(width, height)
@@ -48,6 +59,40 @@ Item {
         Anim {
             type: Anim.DefaultEffects
         }
+    }
+
+    readonly property real _radius: root.cornerRadius >= 0 ? root.cornerRadius : Theme.rounding.medium
+
+    Item {
+        anchors.fill: parent
+        visible: root.backdrop.toString() !== "" && root.backdropW > 0
+        layer.enabled: root._gpu && visible
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: frostMask
+        }
+
+        Image {
+            x: -root.backdropX
+            y: -root.backdropY
+            width: root.backdropW
+            height: root.backdropH
+            source: root.backdrop
+            sourceSize.width: Math.max(8, Math.ceil(root.backdropW / root.backdropShrink))
+            fillMode: Image.PreserveAspectCrop
+            smooth: true
+            asynchronous: true
+            cache: true
+        }
+    }
+
+    Rectangle {
+        id: frostMask
+
+        anchors.fill: parent
+        radius: root._radius
+        visible: false
+        layer.enabled: root._gpu
     }
 
     StyledRect {

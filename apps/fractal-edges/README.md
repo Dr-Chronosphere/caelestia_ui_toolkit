@@ -38,7 +38,9 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_ICON_MIN_FRAC` | `0.25` | tiles narrower/shorter than this fraction of the work area get an icon card |
 | `FRACTAL_ICON_MIN_W` / `FRACTAL_ICON_MIN_H` | unset | pixel overrides for the fraction |
 | `FRACTAL_CARD_RADIUS` | window rounding | card corner radius (default: read from `decoration:rounding`) |
-| `FRACTAL_CARD_BLUR_ONSET` | `0.4` | how opaque the card backing must be (0..1) before Hyprland switches the blur on |
+| `FRACTAL_CARD_BLUR` | `wallpaper` | `wallpaper`: cards show a pre-blurred copy of your wallpaper (cheap, fades smoothly); `live`: Hyprland blurs what is behind (heavier); `off`: opaque |
+| `FRACTAL_WALLPAPER` | Caelestia's current wallpaper | image path to use for the card backdrop |
+| `FRACTAL_CARD_BLUR_ONSET` (live mode only) | `0.4` | how opaque the card backing must be (0..1) before Hyprland switches the blur on |
 | `FRACTAL_CARD_PAD` | `0` | px to grow (+) or shrink (-) cards; their base size matches where windows really sit in their tiles (measured from `hyprctl clients`) |
 | `FRACTAL_ICONS` | on | `off` disables the icon cards |
 | `FRACTAL_CARD_BLUR` | on | `off`: opaque cards, no blur rule |

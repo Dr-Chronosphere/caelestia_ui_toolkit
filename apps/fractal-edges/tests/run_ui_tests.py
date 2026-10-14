@@ -427,6 +427,16 @@ cask("setShown", "big", True)
 QTest.qWait(500)
 check(_json.loads(str(cask("opacities")))[0] > 0.99, "and fades back in if the tile shrinks again")
 
+# pre-blurred wallpaper backdrop: a red stand-in image shows through the translucent tint
+from PySide6.QtGui import QImage, QColor
+_bd = QImage(40, 24, QImage.Format_RGB32); _bd.fill(QColor("#ff0000"))
+_bdp = str(HERE / "_backdrop.png"); _bd.save(_bdp)
+cask("setBackdrop", QUrl.fromLocalFile(_bdp).toString())
+QTest.qWait(400)
+_p = cview.grabWindow().pixelColor(22, 60)
+check(_p.red() > 110 and _p.red() - _p.green() > 80, f"the backdrop image shows under the card's tint ({_p.name()})")
+import os as _os; _os.remove(_bdp)
+
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]
 for m in bad:

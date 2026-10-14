@@ -48,7 +48,24 @@ ShellRoot {
 
     // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
     // FRACTAL_CARD_BLUR=off gives opaque cards instead.
-    readonly property bool cardBlur: Quickshell.env("FRACTAL_CARD_BLUR") !== "off"
+    // FRACTAL_CARD_BLUR: "wallpaper" (default) shows a pre-blurred copy of the wallpaper (cheap, fades
+    // smoothly), "live" has Hyprland blur what is behind the card (heavier, all-or-nothing blur),
+    // "off" gives opaque cards.
+    readonly property string cardBlurMode: Quickshell.env("FRACTAL_CARD_BLUR") || "wallpaper"
+    readonly property bool cardBlur: cardBlurMode === "live"
+    readonly property bool translucent: cardBlurMode !== "off"
+
+    // The wallpaper Caelestia is showing (its state file), or FRACTAL_WALLPAPER.
+    property string wallpaperPath: Quickshell.env("FRACTAL_WALLPAPER") || ""
+    readonly property string stateDir: Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")
+    FileView {
+        path: Quickshell.env("FRACTAL_WALLPAPER") ? "" : root.stateDir + "/caelestia/wallpaper/path.txt"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: root.wallpaperPath = text().trim()
+    }
+    readonly property url wallpaperUrl: (cardBlurMode === "wallpaper" && wallpaperPath) ? "file://" + wallpaperPath : ""
     // Hyprland blurs a pixel fully or not at all (it has no per-surface blur strength), so the blur
     // switches on once the card's backing is this opaque (0..1); until then the card fades in as a
     // plain translucent panel and the blur arrives under an already fairly solid card.
@@ -707,7 +724,12 @@ ShellRoot {
                         // you drag it tracks the tile directly, since easing toward a moving
                         // target every few ms lags and stutters.
                         smooth: scope.cardsIdle || !!cardWin.geo.leaving
-                        tint: root.cardBlur ? 0.62 : 1
+                        tint: root.translucent ? 0.55 : 1
+                        backdrop: root.wallpaperUrl
+                        backdropX: Math.max(0, Math.round(cardWin.geo.x - scope.originX))
+                        backdropY: Math.max(0, Math.round(cardWin.geo.y - scope.originY))
+                        backdropW: scope.modelData.width
+                        backdropH: scope.modelData.height
                         cornerRadius: root.cardRadius
                         iconSource: root.iconFor(cardWin.geo.label)
                         label: cardWin.geo.label
