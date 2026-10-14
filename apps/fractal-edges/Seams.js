@@ -453,3 +453,18 @@ function piecesFromCovers(thin, axisOfSeam, covers) {
 function cardBlurRuleCommand() {
     return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })';
 }
+
+// Stacking among our layer surfaces: cards at the bottom, then handles, then the guide, all below
+// Caelestia's surfaces (default order 0), so its popouts/bar keep the pointer and the handles and
+// rubber-band guide draw over the cards. `flip` negates for compositors that sort the other way.
+function orderRuleCommand(flip) {
+    var k = flip ? -1 : 1;
+    function rule(name, ns, n) {
+        return 'hl.layer_rule({ name = "' + name + '", match = { namespace = "' + ns + '" }, order = ' + (n * k) + ' })';
+    }
+    return [
+        rule("fractal-order-card", "caelestia-fractal-card", -3),
+        rule("fractal-order-edge", "caelestia-fractal-edge", -2),
+        rule("fractal-order-guide", "caelestia-fractal-guide", -1)
+    ].join("; ");
+}

@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Lod.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,iconSize,showLabel,initial,scaleOf,alphaFor,reconcile,purge};", ctx);
+vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,thresholds,iconSize,showLabel,initial,scaleOf,alphaFor,reconcile,purge};", ctx);
 const L = ctx.L;
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -25,7 +25,7 @@ assert.deepEqual(plain(L.smallWindows(null, 1, 1)), []);
 assert.deepEqual(plain(L.smallWindows({ tree: { kind: "window", address: "x" } }, 1, 1)), [], "windows without a box (hidden/parked) get no card");
 
 // cards: inset, sorted by id
-let cs = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 4 }));
+let cs = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 4, outset: 0 }));
 assert.equal(cs.length, 2);
 assert.deepEqual([cs[0].x, cs[0].y, cs[0].w, cs[0].h].length, 4);
 const cardC = cs.find(k => k.address === "c");
@@ -38,7 +38,7 @@ assert.deepEqual(cs.map(k => k.address), ["d"], "c's card is hidden: the floatin
 cs = plain(L.cards(status, [{ x: 600, y: 440, w: 99, h: 100 }], { minW: 350, minH: 100 }));
 assert.equal(cs.length, 2);
 // defaults: 220 x 140
-assert.equal(plain(L.cards(status, [])).length, 0, "no tile in the fixture is below 220x140");
+assert.equal(plain(L.cards(status, [], {minW:220,minH:140})).length, 0, "no tile in the fixture is below 220x140");
 
 // icon size and label
 assert.equal(L.iconSize(300, 400), 64, "capped");
@@ -100,3 +100,13 @@ let p2 = plain(L.reconcile({ c: card("c"), d: card("d") }, [card("c")], ["c"], 2
 assert.deepEqual(plain(L.purge(p2.map, 2100, 260)).keys, ["c", "d"], "still fading at 100 ms");
 assert.deepEqual(plain(L.purge(p2.map, 2300, 260)).keys, ["c"], "gone after 260 ms");
 console.log("lod tests passed");
+
+// relative threshold: area is 1200x800, frac 0.3 -> 360x240; c,d (300 wide) qualify
+assert.equal(plain(L.cards(status, [], { frac: 0.3 })).length >= 2, true);
+assert.deepEqual([L.thresholds(status, { frac: 0.5 }).minW, L.thresholds(status, { frac: 0.5 }).minH], [600, 400]);
+// edge outset: d touches the right/bottom of the work area (x 100..1300, y 40..840)
+const od = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 0, outset: 12 })).find(k => k.address === "d");
+assert.equal(od.x + od.w, 1312, "grows 12px past the right work-area edge");
+assert.equal(od.y + od.h, 852, "and the bottom");
+const cl = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 0, outset: 12, bounds: { x: 0, y: 0, w: 1305, h: 845 } })).find(k => k.address === "d");
+assert.equal(cl.x + cl.w, 1305, "clamped to the monitor");

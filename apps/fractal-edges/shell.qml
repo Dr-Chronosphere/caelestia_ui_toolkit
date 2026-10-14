@@ -37,8 +37,16 @@ ShellRoot {
     // Level of detail: tiles smaller than this get an icon card; tapping it zooms into the window.
     // FRACTAL_ICONS=off disables it.
     readonly property bool iconsEnabled: Quickshell.env("FRACTAL_ICONS") !== "off"
-    readonly property real iconMinW: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_W")) || 220
-    readonly property real iconMinH: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_H")) || 140
+    // "Small" is a fraction of the work area (default 0.25 of its width or height); the px knobs
+    // override it. Cards grow `cardOutset` px past tile sides that touch the work-area edge.
+    readonly property real iconFrac: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_FRAC")) || 0.25
+    readonly property var iconMinW: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_W")) || undefined
+    readonly property var iconMinH: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_H")) || undefined
+    readonly property real cardOutset: Quickshell.env("FRACTAL_CARD_OUTSET") !== null && Quickshell.env("FRACTAL_CARD_OUTSET") !== "" ? parseFloat(Quickshell.env("FRACTAL_CARD_OUTSET")) : 12
+    // Stacking among our surfaces (Hyprland layer-rule `order`): cards under handles under the
+    // guide, all under Caelestia's own surfaces (0) so its popouts keep the pointer.
+    // FRACTAL_EDGE_ORDER=flip reverses the sign if your Hyprland treats lower as higher.
+    readonly property bool orderFlip: Quickshell.env("FRACTAL_EDGE_ORDER") === "flip"
 
     // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
     // FRACTAL_CARD_BLUR=off gives opaque cards instead.
@@ -152,6 +160,7 @@ ShellRoot {
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
         if (cardBlur)
             Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand()]);
+        Quickshell.execDetached(["hyprctl", "eval", Seams.orderRuleCommand(orderFlip)]);
     }
 
     Component.onCompleted: {
@@ -312,10 +321,20 @@ ShellRoot {
             // floating window goes at once; one whose tile grew fades out first.
             function rebuildCards(): void {
                 const opts = {
-                    "minW": root.iconMinW,
-                    "minH": root.iconMinH,
-                    "inset": 4
+                    "frac": root.iconFrac,
+                    "inset": 0,
+                    "outset": root.cardOutset,
+                    "bounds": {
+                        "x": originX,
+                        "y": originY,
+                        "w": modelData.width,
+                        "h": modelData.height
+                    }
                 };
+                if (root.iconMinW !== undefined)
+                    opts.minW = root.iconMinW;
+                if (root.iconMinH !== undefined)
+                    opts.minH = root.iconMinH;
                 const on = root.iconsEnabled && fractalActive && status;
                 const fresh = on ? Lod.cards(status, blockers, opts) : [];
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];

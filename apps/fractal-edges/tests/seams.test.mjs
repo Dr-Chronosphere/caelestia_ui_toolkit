@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,orderRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -271,3 +271,6 @@ assert.deepEqual(pf([{ a: 350, b: 350, m: 0 }]), [[40, 800]], "collapsed cover: 
 assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignores its margin (no stray gap)");
 assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })');
 console.log("seams tests passed");
+
+assert.match(S.orderRuleCommand(false), /fractal-order-card.*order = -3.*fractal-order-edge.*order = -2.*fractal-order-guide.*order = -1/);
+assert.match(S.orderRuleCommand(true), /order = 3 .*order = 2 .*order = 1 /);

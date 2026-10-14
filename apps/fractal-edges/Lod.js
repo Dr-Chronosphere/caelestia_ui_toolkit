@@ -46,23 +46,53 @@ function alphaFor(scale) {
     return Math.max(0, Math.min(1, (1 - scale) / FADE));
 }
 
-// The icon cards to show: small windows, inset a little so the card sits inside the tile's
-// borders, minus any card a floating window overlaps (a layer surface would be drawn over it).
-// opts: { minW, minH, inset }.
+// The icon cards to show: small windows, minus any card a floating window overlaps (a layer
+// surface would be drawn over it).
+// "Small" is relative to the work area: a tile narrower than frac * area.w or shorter than
+// frac * area.h (default 0.25), so the same layout behaves alike on any screen. minW/minH (px)
+// override that.
+// A card sits exactly on its tile (inset, default 0); on sides where the tile touches the work
+// area's edge it grows outward by `outset` px to cover the gaps/border there, clamped to `bounds`
+// (the monitor, {x,y,w,h}) when given.
+// opts: { frac, minW, minH, inset, outset, bounds }.
 // Returns [{ id, address, label, title, x, y, w, h, scale, alpha }] sorted by id.
+function thresholds(status, opts) {
+    opts = opts || {};
+    var frac = opts.frac === undefined ? 0.25 : opts.frac;
+    var area = status && status.area;
+    return {
+        minW: opts.minW !== undefined ? opts.minW : (area ? area.w * frac : 220),
+        minH: opts.minH !== undefined ? opts.minH : (area ? area.h * frac : 140)
+    };
+}
+
+function cardRect(box, area, inset, outset, bounds) {
+    var l = box.x + inset, t = box.y + inset, r = box.x + box.w - inset, b = box.y + box.h - inset;
+    if (area && outset > 0) {
+        var eps = 2;
+        if (box.x <= area.x + eps) l -= outset;
+        if (box.y <= area.y + eps) t -= outset;
+        if (box.x + box.w >= area.x + area.w - eps) r += outset;
+        if (box.y + box.h >= area.y + area.h - eps) b += outset;
+    }
+    if (bounds) {
+        l = Math.max(l, bounds.x);
+        t = Math.max(t, bounds.y);
+        r = Math.min(r, bounds.x + bounds.w);
+        b = Math.min(b, bounds.y + bounds.h);
+    }
+    return { x: l, y: t, w: Math.max(1, r - l), h: Math.max(1, b - t) };
+}
+
 function cards(status, blockers, opts) {
     opts = opts || {};
-    var minW = opts.minW === undefined ? 220 : opts.minW;
-    var minH = opts.minH === undefined ? 140 : opts.minH;
-    var inset = opts.inset === undefined ? 4 : opts.inset;
+    var th = thresholds(status, opts);
+    var minW = th.minW, minH = th.minH;
+    var inset = opts.inset === undefined ? 0 : opts.inset;
+    var outset = opts.outset === undefined ? 12 : opts.outset;
     var out = [];
     smallWindows(status, minW, minH).forEach(function (w) {
-        var r = {
-            x: w.box.x + inset,
-            y: w.box.y + inset,
-            w: Math.max(1, w.box.w - 2 * inset),
-            h: Math.max(1, w.box.h - 2 * inset)
-        };
+        var r = cardRect(w.box, status.area, inset, outset, opts.bounds);
         for (var i = 0; i < (blockers || []).length; i++) {
             if (intersects(r, blockers[i]))
                 return;
