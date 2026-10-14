@@ -1,12 +1,17 @@
 import QtQuick
 import "Seams.js" as Seams
 
-// A straight line (given as a rect) that is cut around blocker rects, where each cut opens
-// and closes smoothly instead of popping. Shared by the drag guide and the handle bar.
+// A straight line (given as a rect) that is cut around blocker rects. Shared by the drag guide
+// and the handle bar.
 //
 // All coordinates (line, blockers) are in the same frame. The cut around a blocker is its
-// extent scaled by a per-blocker amount (0..1) around its centre; the amount is animated
-// whenever the line starts or stops overlapping that blocker across its thickness.
+// extent scaled by a per-blocker amount (0..1) around its centre.
+//
+// - Cutting IN is instant. A line that moves under a window must never be drawn over it, not
+//   even for the few frames an animation would take (it looks natural too: the line simply goes
+//   behind the window).
+// - Cutting OUT is animated: when the line emerges from a window, the gap closes inward from
+//   both ends toward its centre.
 Item {
     id: root
 
@@ -17,7 +22,7 @@ Item {
     property var blockers: []
     property color color: "white"
     property int radius: 2
-    property int duration: 140
+    property int duration: 260
 
     property var spans: []
     property var prevT: []
@@ -60,7 +65,12 @@ Item {
             return v === targetT[i];
         }))
             return;
-        prevT = currentT();
+        // Blockers that now cut MORE jump straight to their target (prev = target); the ones
+        // that cut less ease from where they are now.
+        const base = currentT();
+        prevT = base.map(function (b, i) {
+            return nt[i] > b ? nt[i] : b;
+        });
         targetT = nt;
         progress = 0;
         cutAnim.restart();
@@ -78,6 +88,7 @@ Item {
         from: 0
         to: 1
         duration: root.duration
+        easing.type: Easing.Linear
     }
 
     Repeater {

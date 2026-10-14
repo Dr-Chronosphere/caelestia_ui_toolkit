@@ -41,8 +41,17 @@ starts cut can grow back to its full length, and that growth is animated like th
 (they share `CutLine.qml`). After a drag the guide springs to the limit, then fades out so it
 cross-fades with the handle bar instead of vanishing.
 
-When the guide line slides sideways past a floating window's edge, the cut around that window
-opens or closes over about 140 ms (around the window's centre) instead of popping.
+Cuts around floating windows behave differently in the two directions (`CutLine.qml`):
+
+- **Cutting in is instant.** A line that moves under a window is cut at once, so it is never drawn
+  over the window, however fast you drag (an animated cut-in left the line over the window for the
+  few frames it took).
+- **Cutting out is animated.** When the line emerges from behind a window, the gap closes inward
+  from both ends toward the window's centre, over 260 ms with an ease-out. The rubber-band
+  spring-back uses the same duration and curve (`Guide.cutDuration`) so the two feel alike.
+
+At the start of a drag the guide's ratio is set before its seam, so it never appears at the
+previous drag's ratio (that stale first frame used to show a full-size line that then cut in).
 
 The overlay also adds a Hyprland *layer rule* with `no_anim = true` for its own surfaces
 (`caelestia-fractal-edge`, `caelestia-fractal-guide`) and re-applies it after a config reload.

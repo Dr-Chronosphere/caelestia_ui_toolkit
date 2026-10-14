@@ -493,8 +493,9 @@ ShellRoot {
                             scope.fadeGuide = false;
                             scope.settling = false;
                             scope.dragging = true;
-                            scope.dragSeam = win.geo;
+                            // Ratio first: the guide must not appear at the previous drag's ratio.
                             scope.dragRatio = win.geo.ratio;
+                            scope.dragSeam = win.geo;
                         }
                         onDragMoved: (ratio, shown) => {
                             scope.dragRatio = shown;

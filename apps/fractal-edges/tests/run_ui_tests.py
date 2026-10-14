@@ -256,11 +256,78 @@ check(any(5 < v < 95 for v in opening), f"it passes through partial states, i.e.
 
 QMetaObject.invokeMethod(groot, "show", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", cut_seam), Q_ARG("QVariant", 0.5))    # back under the window
 closing = sample(600)
-check(closing[-1] <= 5, f"cut opens up again when the line re-enters the window's width (final {closing[-1]})")
-check(all(b <= a for a, b in zip(closing, closing[1:])), f"and shrinks monotonically ({closing})")
-check(any(5 < v < 95 for v in closing), f"through partial states ({closing})")
+# Cutting IN must be instant: a line that moves under a window is never drawn over it, not even
+# for the few frames an animation would take (dragging fast used to show exactly that).
+check(all(b <= 5 for b in closing), f"cut-in is instant: no frame draws the line over the window ({closing})")
 gask("setBlockers", [])
 gask("hide")
+
+# ---- strip and guide wired together like the host: the drag start, fast drags, inward growth ---------------
+fview = QQuickView()
+fview.engine().addImportPath(str(REPO / "qml"))
+fview.setSource(QUrl.fromLocalFile(str(HERE / "FlowHarness.qml")))
+fview.resize(1300, 900)
+fview.show()
+QTest.qWait(300)
+check(fview.status() == QQuickView.Status.Ready, f"FlowHarness loads ({[e.toString() for e in fview.errors()]})")
+froot = fview.rootObject()
+
+
+def fask(name, *args):
+    QMetaObject.invokeMethod(froot, name, Q_RETURN_ARG("QVariant"), *[Q_ARG("QVariant", a) for a in args])
+
+
+def flit(g, x, y):
+    return g.pixelColor(x, y).green() < 245
+
+
+def fband(x, y0=255, y1=345):
+    g = fview.grabWindow()
+    return sum(1 for y in range(y0, y1) if flit(g, x, y))
+
+
+# A vertical seam at x=300..316, y=50..650; a floating window (x 250..450, y 250..350) splits it.
+fask("setBlockers", [{"x": 250, "y": 250, "w": 200, "h": 100}])
+QTest.qWait(300)
+QTest.mouseMove(fview, QPoint(308, 100))
+QTest.qWait(300)
+check(fband(308) == 0, "hovered split handle: the bar is cut around the window")
+
+# 1) First drag of a split handle must start cut: no full-length frame may appear.
+QTest.mousePress(fview, Qt.LeftButton, Qt.NoModifier, QPoint(308, 100))
+start = []
+for _ in range(8):
+    start.append(fband(308))
+    QTest.qWait(8)
+check(all(b == 0 for b in start), f"a split handle starts cut: no full-size pop-in at drag start ({start})")
+
+# 2) Dragging fast: the guide goes sideways out from under the window and back in.
+QTest.mouseMove(fview, QPoint(308 + 300, 100))          # ratio moves +0.3 (span 1000): line now at x=608, clear of the window
+QTest.qWait(500)
+check(fband(608) >= 85, f"emerged line is whole ({fband(608)})")
+QTest.mouseMove(fview, QPoint(308, 100))                # straight back under the window
+frames = []
+for _ in range(8):
+    frames.append(fband(308))
+    QTest.qWait(8)
+check(all(b == 0 for b in frames), f"cutting in is instant, never drawn over the window ({frames})")
+QTest.mouseRelease(fview, Qt.LeftButton, Qt.NoModifier, QPoint(308, 100))
+QTest.qWait(600)
+
+# 3) Cut-out grows INWARD from both ends. Re-run the emergence and look at where the line is lit.
+QTest.mousePress(fview, Qt.LeftButton, Qt.NoModifier, QPoint(308, 100))
+QTest.qWait(50)
+QTest.mouseMove(fview, QPoint(308 + 300, 100))
+shapes = []
+for _ in range(14):
+    g = fview.grabWindow()
+    shapes.append((flit(g, 608, 256), flit(g, 608, 300), flit(g, 608, 344)))    # (top end, centre, bottom end) of the window span
+    QTest.qWait(10)
+partial = [t for t in shapes if t[0] and t[2] and not t[1]]
+check(len(partial) >= 2, f"while opening, both ends are lit before the centre: the gap closes inward ({shapes})")
+check(not any(t[1] and not (t[0] and t[2]) for t in shapes), "the centre is never lit before the ends (growth is symmetric, from the ends in)")
+QTest.mouseRelease(fview, Qt.LeftButton, Qt.NoModifier, QPoint(608, 100))
+QTest.qWait(300)
 
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]

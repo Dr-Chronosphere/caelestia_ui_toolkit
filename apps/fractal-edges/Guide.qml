@@ -30,8 +30,9 @@ Item {
     property bool fading: false
     // Floating-window rects in layout coordinates (Seams.floatingRects).
     property var blockers: []
-    // How long a cut takes to open or close as the line crosses a window's side, in ms.
-    property int cutDuration: 140
+    // How long a cut takes to close up when the line emerges from a window, and the rubber
+    // band takes to settle: one value so they feel the same. (Cutting in is instant.)
+    property int cutDuration: 260
 
     // px past the seam's limits (0 inside them): the line thickens as it is pulled further.
     readonly property real over: seam ? Math.max(0, (seam.lo !== undefined ? seam.lo : 0.05) - ratio, ratio - (seam.hi !== undefined ? seam.hi : 0.95)) * seam.span : 0
@@ -52,12 +53,17 @@ Item {
         enabled: root.settling
 
         NumberAnimation {
-            duration: 220
+            duration: root.cutDuration
             easing.type: Easing.OutCubic
         }
     }
 
+    // Exposed for tests.
+    readonly property alias cutLine: cut
+
     CutLine {
+        id: cut
+
         anchors.fill: parent
         line: root.thin
         axis: root.seam ? root.seam.axis : "x"
