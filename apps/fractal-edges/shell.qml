@@ -102,12 +102,25 @@ ShellRoot {
             monitorsProc.running = true;
     }
 
-    Component.onCompleted: refreshFloating()
+    // Hyprland slides/fades layer surfaces in and out (your layersIn/layersOut animations), which
+    // shows up as a "ghost" of the guide line floating away when it is hidden. A layer rule
+    // switches that off for our surfaces only; runtime rules are dropped by a config reload, so
+    // re-apply on `configreloaded`.
+    function applyLayerRule(): void {
+        Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
+    }
+
+    Component.onCompleted: {
+        applyLayerRule();
+        refreshFloating();
+    }
 
     Connections {
         target: Hyprland
 
         function onRawEvent(event): void {
+            if (event.name === "configreloaded")
+                root.applyLayerRule();
             if (root.floatEvents.indexOf(event.name) >= 0)
                 floatDebounce.restart();
         }

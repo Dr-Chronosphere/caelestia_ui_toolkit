@@ -34,6 +34,15 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
+When the guide line slides sideways past a floating window's edge, the cut around that window
+opens or closes over about 140 ms (around the window's centre) instead of popping.
+
+The overlay also adds a Hyprland *layer rule* with `no_anim = true` for its own surfaces
+(`caelestia-fractal-edge`, `caelestia-fractal-guide`) and re-applies it after a config reload.
+Without it, your `layersIn`/`layersOut` slide-and-fade animations make a "ghost" of the guide line
+float away whenever it is hidden. To make the rule permanent instead, add this to your Hyprland
+Lua config: `hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })`.
+
 Each seam knows how far the engine will let it move (the tiles' weights are kept within 0.2-5,
 mirrored in `Seams.js`). Dragging past that limit does not just stop: the guide line stretches
 a little (it gets harder to pull, up to about 40 px beyond the limit) and thickens, then springs back

@@ -178,6 +178,37 @@ check(not lit(600, 350), "guide cut where the floating window covers it")
 gask("setBlockers", [])
 check(lit(600, 350), "guide whole again once the window is gone")
 
+# Smooth cuts: sliding the line sideways past a floating window's edge must open/close the cut
+# gradually, not pop. Window layout x=650..850, y=300..400; line at layout x=700 (inside) vs 880 (outside).
+cut_seam = dict(seam, lo=0.1, hi=0.9)
+gask("setBlockers", [{"x": 650, "y": 300, "w": 200, "h": 100}])
+gask("show", cut_seam, 0.5)                                  # inside the window's width: cut
+band = lambda x: sum(1 for y in range(300, 400) if lit(x, y))
+check(band(600) == 0, "line inside the window's width is cut across the whole window")
+
+
+def sample(x, n=10, ms=14):
+    out = []
+    for _ in range(n):
+        out.append(band(x))
+        QTest.qWait(ms)
+    return out
+
+
+QMetaObject.invokeMethod(groot, "show", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", cut_seam), Q_ARG("QVariant", 0.65))   # line now x=880-100=780
+opening = sample(780)
+check(opening[-1] >= 95, f"cut closes completely once clear of the window (final {opening[-1]})")
+check(all(b >= a for a, b in zip(opening, opening[1:])), f"the line grows monotonically, no flicker ({opening})")
+check(any(5 < v < 95 for v in opening), f"it passes through partial states, i.e. animates rather than pops ({opening})")
+
+QMetaObject.invokeMethod(groot, "show", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", cut_seam), Q_ARG("QVariant", 0.5))    # back under the window
+closing = sample(600)
+check(closing[-1] <= 5, f"cut opens up again when the line re-enters the window's width (final {closing[-1]})")
+check(all(b <= a for a, b in zip(closing, closing[1:])), f"and shrinks monotonically ({closing})")
+check(any(5 < v < 95 for v in closing), f"through partial states ({closing})")
+gask("setBlockers", [])
+gask("hide")
+
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]
 for m in bad:

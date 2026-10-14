@@ -306,3 +306,54 @@ function hasFloating(clientsText) {
     }
     return Array.isArray(clients) && clients.some(function (c) { return c.floating && c.mapped !== false && !c.hidden; });
 }
+
+// --- Smooth cuts around floating windows --------------------------------------------------------
+// While dragging, the guide line is cut around floating windows. When the line slides past a
+// window's side the cut must not pop in or out: each blocker has a "cut amount" t (0..1) that
+// the host animates, and the cut it makes is its extent scaled by t around its centre.
+
+// For each blocker: its extent along the line's direction and whether the (thin) line currently
+// overlaps it across its thickness. `thin` is {x, y, w, h} in layout coordinates.
+function blockerSpans(thin, axisOfSeam, blockers) {
+    var along = axisOfSeam === "x" ? "y" : "x";
+    var lenKey = along === "y" ? "h" : "w";
+    var thickKey = along === "y" ? "w" : "h";
+    var coverKey = along === "y" ? "x" : "y";
+    return (blockers || []).map(function (b) {
+        return {
+            a: b[along],
+            b: b[along] + b[lenKey],
+            on: b[coverKey] < thin[coverKey] + thin[thickKey] && b[coverKey] + b[thickKey] > thin[coverKey]
+        };
+    });
+}
+
+// The pieces of the line left uncovered when blocker i is cut by amount
+// prevT[i] + (targetT[i] - prevT[i]) * e   (e = animation progress 0..1, already eased).
+// Returns rects in layout coordinates.
+function guidePieces(thin, axisOfSeam, spans, prevT, targetT, e) {
+    var along = axisOfSeam === "x" ? "y" : "x";
+    var lenKey = along === "y" ? "h" : "w";
+    var covered = [];
+    for (var i = 0; i < spans.length; i++) {
+        var t = prevT[i] + (targetT[i] - prevT[i]) * e;
+        if (t > 0.001) {
+            var centre = (spans[i].a + spans[i].b) / 2;
+            var half = (spans[i].b - spans[i].a) / 2 * t;
+            covered.push([centre - half, centre + half]);
+        }
+    }
+    return uncovered(thin[along], thin[along] + thin[lenKey], covered).map(function (iv) {
+        var r = { x: thin.x, y: thin.y, w: thin.w, h: thin.h };
+        r[along] = iv[0];
+        r[lenKey] = iv[1] - iv[0];
+        return r;
+    });
+}
+
+// The Lua for `hyprctl eval` that stops Hyprland playing its layer slide/fade animations on the
+// overlay's surfaces (the guide line and handles are layer surfaces, so without this a "ghost"
+// of the last frame slides away whenever one is hidden).
+function layerRuleCommand() {
+    return 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })';
+}

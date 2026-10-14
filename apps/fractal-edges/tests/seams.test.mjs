@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,limits,rubberBand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -177,4 +177,39 @@ assert.equal(gr.length, 2);
 assert.equal(gr[0].x, 820 + 0 - 1.5 - 100 + 0, "ratio 0.6 shifts 120 px from centre 700, minus origin");
 assert.deepEqual([gr[0].y, gr[0].h, gr[1].y, gr[1].h], [40, 260, 400, 440]);
 assert.equal(plain(S.guideRects(vseam, 0.5, 100, 0, 3, [])).length, 1);
+// --- smooth cuts ---------------------------------------------------------------------------------------
+// thin vertical guide at x=598.5..601.5 (layout coords), y=40..840; a floating window y=300..400
+const thin = { x: 598.5, y: 40, w: 3, h: 800 };
+const blk = [{ x: 500, y: 300, w: 200, h: 100 }, { x: 900, y: 600, w: 100, h: 100 }];   // 2nd is far to the right
+const sp = plain(S.blockerSpans(thin, "x", blk));
+assert.deepEqual(sp, [{ a: 300, b: 400, on: true }, { a: 600, b: 700, on: false }]);
+// the line to the right of the first window: not overlapping
+assert.equal(plain(S.blockerSpans({ ...thin, x: 800 }, "x", blk))[0].on, false);
+// horizontal line (axis y): extent along x
+const hsp = plain(S.blockerSpans({ x: 100, y: 350, w: 600, h: 3 }, "y", blk));
+assert.deepEqual(hsp[0], { a: 500, b: 700, on: true });
+
+const pieces2 = (e, prev, target) => plain(S.guidePieces(thin, "x", sp, prev, target, e)).map(r => [r.y, r.h]);
+// fully cut (target 1, e=1): the window's 300..400 is removed
+assert.deepEqual(pieces2(1, [0, 0], [1, 0]), [[40, 260], [400, 440]]);
+// not cut at all
+assert.deepEqual(pieces2(1, [1, 0], [0, 0]), [[40, 800]]);
+assert.deepEqual(pieces2(0, [0, 0], [1, 0]), [[40, 800]], "start of a cut-in: nothing cut yet");
+// halfway: the cut is half the window's extent, centred on it (325..375)
+assert.deepEqual(pieces2(0.5, [0, 0], [1, 0]), [[40, 285], [375, 465]]);
+// halfway through a cut-out starting from fully cut
+assert.deepEqual(pieces2(0.5, [1, 0], [0, 0]), [[40, 285], [375, 465]]);
+// continuity: the cut shrinks smoothly (never jumps) as e goes 0 -> 1
+let lastCut = -1;
+for (let k = 0; k <= 10; k++) {
+  const ps = pieces2(k / 10, [1, 0], [0, 0]);
+  const cut = 800 - ps.reduce((a, p) => a + p[1], 0);
+  assert.ok(lastCut < 0 || cut <= lastCut + 1e-9, "cut only shrinks");
+  assert.ok(lastCut < 0 || lastCut - cut <= 10 + 1e-9, "in steps of at most 10 px (no popping)");
+  lastCut = cut;
+}
+assert.equal(lastCut, 0);
+
+// the layer rule that stops the ghost animation
+assert.equal(S.layerRuleCommand(), 'hl.layer_rule({ name = "fractal-edges-noanim", match = { namespace = "caelestia-fractal-(edge|guide)" }, no_anim = true })');
 console.log("seams tests passed");
