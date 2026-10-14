@@ -457,7 +457,7 @@ function cardBlurRuleCommand(onset) {
 }
 
 // How far real windows sit inside their layout tiles, measured from `hyprctl clients -j` against
-// the status boxes (matched by address): the median gap on sides shared with a neighbour (`inner`,
+// the status boxes (matched by address): the most common gap on sides shared with a neighbour (`inner`,
 // gaps_in + border) and on sides touching the work area's edge (`edge`, gaps_out + border).
 // Returns null when nothing matches.
 function measureInsets(clientsText, status) {
@@ -480,17 +480,28 @@ function measureInsets(clientsText, status) {
             var c = by[n.address], b = n.box;
             var d = [c.at[0] - b.x, c.at[1] - b.y, (b.x + b.w) - (c.at[0] + c.size[0]), (b.y + b.h) - (c.at[1] + c.size[1])];
             var onEdge = [b.x <= a.x + eps, b.y <= a.y + eps, b.x + b.w >= a.x + a.w - eps, b.y + b.h >= a.y + a.h - eps];
+            // A window whose app enforces a minimum size (or is mid-animation) does not fill its
+            // tile the way the others do; its gaps would skew the result, so skip it.
+            if (d.some(function (v) { return v < -1 || v > 60; }))
+                return;
             for (var i = 0; i < 4; i++)
-                (onEdge[i] ? edge : inner).push(d[i]);
+                (onEdge[i] ? edge : inner).push(Math.round(d[i]));
         }
         (n.children || []).forEach(walk);
     }
     walk(status.tree);
+    // The most common value (ties: the smaller): the configured gap, not an outlier.
     function med(l) {
         if (!l.length)
             return null;
-        l.sort(function (x, y) { return x - y; });
-        return l[Math.floor(l.length / 2)];
+        var cnt = {}, best = null;
+        l.forEach(function (v) { cnt[v] = (cnt[v] || 0) + 1; });
+        Object.keys(cnt).forEach(function (k) {
+            var v = Number(k);
+            if (best === null || cnt[k] > cnt[best] || (cnt[k] === cnt[best] && v < best))
+                best = v;
+        });
+        return best;
     }
     var mi = med(inner), me = med(edge);
     if (mi === null && me === null)

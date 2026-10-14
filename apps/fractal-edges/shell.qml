@@ -346,7 +346,36 @@ ShellRoot {
             // floating window goes at once; one whose tile grew fades out first.
             // True once the layout has been still for a moment.
             property bool cardsIdle: false
-            onCardsIdleChanged: rebuildCards()
+            // Where windows sit inside their tiles. Measured only while the layout is still (the
+            // client list is polled on events, so mid-drag it lags the live tile boxes) and kept
+            // between drags, so one app's size limits or animation can't skew another's card.
+            property var insets: ({
+                    "inner": 0,
+                    "edge": 0
+                })
+            function remeasure(): void {
+                if (!cardsIdle || !status)
+                    return;
+                const m = Seams.measureInsets(root.clientsText, status);
+                if (m && (m.inner !== insets.inner || m.edge !== insets.edge)) {
+                    insets = m;
+                    rebuildCards();
+                }
+            }
+            Connections {
+                target: root
+
+                function onClientsTextChanged(): void {
+                    scope.remeasure();
+                }
+            }
+            onCardsIdleChanged: {
+                if (cardsIdle) {
+                    root.refreshFloating();
+                    remeasure();
+                }
+                rebuildCards();
+            }
             Timer {
                 id: idleTimer
 
@@ -357,10 +386,7 @@ ShellRoot {
             function rebuildCards(): void {
                 // Cards match where real windows sit inside their tiles (measured, so any gaps or
                 // border setting works); FRACTAL_CARD_PAD grows (+) or shrinks (-) them further.
-                const ins = Seams.measureInsets(root.clientsText, status) || {
-                    "inner": 0,
-                    "edge": 0
-                };
+                const ins = insets;
                 const opts = {
                     "frac": root.iconFrac,
                     "inset": ins.inner - root.cardOutset,

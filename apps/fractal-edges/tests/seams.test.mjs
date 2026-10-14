@@ -281,3 +281,10 @@ assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clI, stI))), { inner:
 assert.equal(S.measureInsets("[]", stI), null);
 assert.equal(S.parseRounding('{"option":"decoration:rounding","int":12,"set":true}'), 12);
 assert.equal(S.parseRounding("nope"), null);
+// an app that enforces a minimum size (client far bigger/offset than its tile) is ignored
+const stJ = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [
+  { kind: "window", address: "0xa", box: { x: 0, y: 0, w: 50, h: 100 } },
+  { kind: "window", address: "0xb", box: { x: 50, y: 0, w: 50, h: 100 } },
+  { kind: "window", address: "0xc", box: { x: 50, y: 90, w: 50, h: 10 } } ] } };
+const clJ = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }, { address: "0xc", at: [55, 90], size: [200, 200] }]);
+assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clJ, stJ))), { inner: 5, edge: 10 });
