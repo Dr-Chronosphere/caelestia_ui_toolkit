@@ -362,6 +362,8 @@ for _ in range(14):
     small.append((strip_rows(346, 356), strip_rows(232, 244)))     # (lower piece growing upward, upper piece's end)
     QTest.qWait(10)
 check(small[0][1] == 0 or small[0][1] <= 4, f"the edge the window moves toward snaps: the upper piece never overlaps ({small[0]})")
+QTest.qWait(500)                                  # let the exponential tail settle
+small.append((strip_rows(346, 356), strip_rows(232, 244)))
 lower = [a for a, _ in small]
 check(all(b >= a for a, b in zip(lower, lower[1:])), f"the lower piece grows monotonically ({lower})")
 check(lower[-1] >= 9, f"and reaches its new end ({lower[-1]})")
@@ -369,6 +371,37 @@ check(any(1 <= v <= 8 for v in lower), f"through partial states: a 10px change i
 fask("setBlockers", [{"x": 250, "y": 250, "w": 200, "h": 100}])
 QTest.qWait(500)
 QTest.mouseMove(fview, QPoint(1200, 800))
+
+# ---- icon cards (level of detail): fallback badge, caption rules, tap-to-zoom signal -------------------------
+cview = QQuickView()
+cview.engine().addImportPath(str(REPO / "qml"))
+cview.setSource(QUrl.fromLocalFile(str(HERE / "CardHarness.qml")))
+cview.resize(500, 300)
+cview.show()
+QTest.qWait(500)
+check(cview.status() == QQuickView.Status.Ready, f"CardHarness loads ({[e.toString() for e in cview.errors()]})")
+croot = cview.rootObject()
+
+
+def cask(name, *args):
+    r = QMetaObject.invokeMethod(croot, name, Q_RETURN_ARG("QVariant"), *[Q_ARG("QVariant", a) for a in args])
+    return r.toVariant() if hasattr(r, "toVariant") else r
+
+
+ops = _json.loads(str(cask("opacities")))
+check(all(o > 0.99 for o in ops), f"cards fade in to full opacity ({ops})")
+cimg = cview.grabWindow()
+bg = cimg.pixelColor(22, 60).name()                                 # card background (surface container)
+check(bg != "#ffffff", f"card is drawn with a themed background ({bg})")
+# the fallback badge (a lettered circle) sits at the card's centre: it must differ from the plain card background
+centre_big = cimg.pixelColor(60, 45).name()
+check(any(cimg.pixelColor(x, y).name() != bg for x in range(50, 100, 4) for y in range(25, 60, 4)), "fallback letter badge is drawn when there is no icon image")
+check(cask("labelShown", "big") is True and cask("labelShown", "small") is False, "caption shown only when the card has room for it")
+cask("clearLog")
+QTest.mouseClick(cview, Qt.LeftButton, Qt.NoModifier, QPoint(80, 60))
+QTest.mouseClick(cview, Qt.LeftButton, Qt.NoModifier, QPoint(230, 35))
+QTest.qWait(50)
+check(str(cask("logText")) == "big|small", f"tapping a card emits activated for that card ({cask('logText')})")
 
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]

@@ -56,6 +56,14 @@ Hyprland restart or a layout switch.
 - **One-command setup**: `bin/caelestia-fractal-setup install|check` (tested in a throwaway `$HOME` by
   `integration/test-setup.sh`, including loading the resulting `hyprland.lua` in a Lua VM).
 
+- **Icons for small tiles (Trellis-style level of detail)**: `apps/fractal-edges/Lod.js`,
+  `IconCard.qml` (see that README). Tapping a card zooms into the window.
+- **Zoom gestures** (not built yet): touchpad pinch can use Hyprland's native `gesture` system
+  (`pinch`/`pinchin`/`pinchout` with a `dispatcher` action; Lua form `hl.gesture`, since 0.55).
+  Touchscreen pinch is *not* native: it needs the hyprgrass plugin (alpha-quality; upstream's keys file
+  already has optional hyprgrass pinch binds). A Quickshell overlay cannot observe touches that land
+  on other windows, so it cannot provide a touchscreen pinch itself.
+
 ## Proposed work, in order
 
 1. **Install and try the engine as is** on your system (no code from us): `fractal on`, zoom,

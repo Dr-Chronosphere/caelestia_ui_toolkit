@@ -81,6 +81,23 @@ exists, so dragging a floating window keeps the handles in step.
 Handles appear only on workspaces using `lua:fractal`, and only between tiles that are on screen
 (not tabs, not hidden tiles). Handle thickness defaults to 16 px (`FRACTAL_EDGE_GRAB=28` for fingers).
 
+## Icons for tiles that are too small (level of detail)
+
+Like Trellis collapsing small windows to icons: a tile smaller than 220 x 140 px (override with
+`FRACTAL_ICON_MIN_W` / `FRACTAL_ICON_MIN_H`; `FRACTAL_ICONS=off` disables) is covered by an opaque
+card showing the app's icon (and its name when there is room). **Tapping or clicking the card zooms
+into that window** (it sends the layout's `zoom <id>`, so the window fills the view and the card
+goes away).
+
+- The window underneath keeps running at its tiny size; the card is a layer surface on top of it.
+  Anything that makes a tile bigger (zooming, resizing, closing a neighbour) removes the card.
+- The icon comes from the window class via the desktop entry (`DesktopEntries.heuristicLookup`),
+  falling back to the lower-cased class as an icon name, then to a lettered badge.
+- Cards are skipped where a floating window overlaps them (a layer surface would otherwise be
+  drawn over that window), and are not rebuilt while you drag a handle.
+- Card windows are kept alive and keyed by window id, and fade in. `Lod.js` holds the (unit-tested)
+  rules, `IconCard.qml` the card.
+
 ## Install
 
 `bin/caelestia-fractal-setup install` clones fractal-wm, applies the engine patch and does the rest
@@ -136,6 +153,13 @@ there is no per-window "don't animate" switch to use for the engine's parked win
   could no longer unset it. `stop`/`restart` now avoid this. If you still get a crash report,
   please keep it; the stack trace and the last lines of the log are what I need.
 - `integration/test-launchers.sh` tests the stop/restart logic against a fake `qs`.
+
+## Not verified (icons)
+
+Everything that needs Quickshell or Hyprland: resolving icons (`DesktopEntries`, `iconPath`),
+the card windows themselves, and that `zoom <id>` is what you want when a card is tapped. The
+rules (which tiles get a card, sizes, floating-window overlap) and the card's rendering and
+tap signal are tested headlessly.
 
 ## Not verified (needs a live Hyprland and Quickshell)
 

@@ -14,6 +14,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import CaelestiaUI
 import "Seams.js" as Seams
+import "Lod.js" as Lod
 
 ShellRoot {
     id: root
@@ -32,6 +33,28 @@ ShellRoot {
     // pulls back from a floating window after cutting in (0 = no recoil).
     readonly property int settleMs: parseInt(Quickshell.env("FRACTAL_EDGE_SETTLE")) || 260
     readonly property real recoilPx: Quickshell.env("FRACTAL_EDGE_RECOIL") !== null && Quickshell.env("FRACTAL_EDGE_RECOIL") !== "" ? parseFloat(Quickshell.env("FRACTAL_EDGE_RECOIL")) : 6
+
+    // Level of detail: tiles smaller than this get an icon card; tapping it zooms into the window.
+    // FRACTAL_ICONS=off disables it.
+    readonly property bool iconsEnabled: Quickshell.env("FRACTAL_ICONS") !== "off"
+    readonly property real iconMinW: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_W")) || 220
+    readonly property real iconMinH: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_H")) || 140
+
+    // The icon for an app class (window `name` in the status file): its desktop entry's icon,
+    // else the lower-cased class as an icon name; the card falls back to a lettered badge.
+    function iconFor(cls: string): string {
+        if (!cls)
+            return "";
+        const entry = DesktopEntries.heuristicLookup(cls);
+        const name = (entry && entry.icon) ? entry.icon : cls.toLowerCase();
+        return Quickshell.iconPath(name, "application-x-executable");
+    }
+
+    // Zoom the viewport onto one window (the layout's `zoom <node-id>`).
+    function zoomTo(id: string): void {
+        if (/^[A-Za-z0-9_-]+$/.test(id))
+            Hyprland.dispatch("hl.dsp.layout(\"zoom " + id + "\")");
+    }
 
     // FRACTAL_EDGE_DEBUG=1 logs what the overlay does (drags, handle windows appearing/vanishing,
     // floating windows changing) with a millisecond clock, to correlate with anything that looks off.
@@ -236,6 +259,11 @@ ShellRoot {
             property var seamMap: ({})
             property string keysKey: ""
             property string mapKey: ""
+            // Icon cards for tiles too small to use, keyed by node id and kept alive.
+            property var cardKeys: []
+            property var cardMap: ({})
+            property string cardKeysKey: ""
+            property string cardMapKey: ""
             property var blockers: []
             property string blockersKey: ""
             property bool dragging: false
@@ -248,8 +276,43 @@ ShellRoot {
 
             // Rebuild the handles, unless a drag is in progress: handles stay where they
             // were grabbed, so the drag maths is not disturbed by the layout reflowing.
+            function rebuildCards(): void {
+                const list = (root.iconsEnabled && fractalActive && status) ? Lod.cards(status, blockers, {
+                    "minW": root.iconMinW,
+                    "minH": root.iconMinH,
+                    "inset": 4
+                }) : [];
+                const map = {};
+                const keys = [];
+                for (const c of list) {
+                    map[c.id] = c;
+                    keys.push(c.id);
+                }
+                const newMapKey = JSON.stringify(map);
+                if (newMapKey === cardMapKey)
+                    return;
+                cardMapKey = newMapKey;
+                const newKeysKey = JSON.stringify(keys);
+                if (newKeysKey !== cardKeysKey) {
+                    root.dbg(modelData.name + ": icon cards " + newKeysKey);
+                    cardKeysKey = newKeysKey;
+                    const merged = {};
+                    for (const k in cardMap)
+                        merged[k] = cardMap[k];
+                    for (const k in map)
+                        merged[k] = map[k];
+                    cardMap = merged;
+                    cardKeys = keys;
+                }
+                cardMap = map;
+            }
+
             function rebuild(): void {
                 if (root.shuttingDown) {
+                    cardKeys = [];
+                    cardMap = ({});
+                    cardKeysKey = "";
+                    cardMapKey = "";
                     dragging = false;
                     dragSeam = null;
                     seamKeys = [];
@@ -260,6 +323,7 @@ ShellRoot {
                 }
                 if (dragging)
                     return;
+                rebuildCards();
                 const all = (fractalActive && status) ? Seams.seams(status, root.grab) : [];
                 // A handle exists while at least one stretch of its seam is grabbable.
                 const keep = all.filter(s => Seams.pieces(s, blockers, 24).length > 0);
@@ -408,6 +472,54 @@ ShellRoot {
                     fading: scope.fadeGuide
                     cutDuration: root.settleMs
                     cutRecoil: root.recoilPx
+                }
+            }
+
+            // Icon cards cover tiles too small to use; tapping one zooms into that window.
+            Variants {
+                model: scope.cardKeys
+
+                delegate: PanelWindow {
+                    id: cardWin
+
+                    required property string modelData
+
+                    readonly property var card: scope.cardMap[modelData]
+                    readonly property bool ready: card !== undefined && card !== null
+                    readonly property var geo: ready ? card : ({
+                            "id": "",
+                            "label": "",
+                            "title": "",
+                            "x": 0,
+                            "y": 0,
+                            "w": 1,
+                            "h": 1
+                        })
+
+                    screen: scope.modelData
+                    visible: ready
+                    anchors {
+                        top: true
+                        left: true
+                    }
+                    margins {
+                        left: Math.max(0, Math.round(geo.x - scope.originX))
+                        top: Math.max(0, Math.round(geo.y - scope.originY))
+                    }
+                    implicitWidth: Math.max(1, Math.round(geo.w))
+                    implicitHeight: Math.max(1, Math.round(geo.h))
+                    exclusionMode: ExclusionMode.Ignore
+                    color: "transparent"
+                    WlrLayershell.namespace: "caelestia-fractal-card"
+                    WlrLayershell.layer: WlrLayer.Top
+
+                    IconCard {
+                        anchors.fill: parent
+                        iconSource: root.iconFor(cardWin.geo.label)
+                        label: cardWin.geo.label
+                        title: cardWin.geo.title
+                        onActivated: root.zoomTo(cardWin.geo.id)
+                    }
                 }
             }
 
