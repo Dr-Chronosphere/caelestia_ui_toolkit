@@ -25,7 +25,7 @@ assert.deepEqual(plain(L.smallWindows(null, 1, 1)), []);
 assert.deepEqual(plain(L.smallWindows({ tree: { kind: "window", address: "x" } }, 1, 1)), [], "windows without a box (hidden/parked) get no card");
 
 // cards: inset, sorted by id
-let cs = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 4, outset: 0 }));
+let cs = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 4, outset: -4 }));
 assert.equal(cs.length, 2);
 assert.deepEqual([cs[0].x, cs[0].y, cs[0].w, cs[0].h].length, 4);
 const cardC = cs.find(k => k.address === "c");

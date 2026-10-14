@@ -272,9 +272,9 @@ assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignor
 assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })');
 console.log("seams tests passed");
 
-const st = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [
+const stI = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [
   { kind: "window", address: "0xa", box: { x: 0, y: 0, w: 50, h: 100 } },
   { kind: "window", address: "0xb", box: { x: 50, y: 0, w: 50, h: 100 } } ] } };
-const cl = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }]);
-assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(cl, st))), { inner: 5, edge: 10 });
-assert.equal(S.measureInsets("[]", st), null);
+const clI = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }]);
+assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clI, stI))), { inner: 5, edge: 10 });
+assert.equal(S.measureInsets("[]", stI), null);
