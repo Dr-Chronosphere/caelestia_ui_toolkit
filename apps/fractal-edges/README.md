@@ -38,12 +38,13 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_ICON_MIN_FRAC` | `0.25` | tiles narrower/shorter than this fraction of the work area get an icon card |
 | `FRACTAL_ICON_MIN_W` / `FRACTAL_ICON_MIN_H` | unset | pixel overrides for the fraction |
 | `FRACTAL_CARD_RADIUS` | window rounding | card corner radius (default: read from `decoration:rounding`) |
-| `FRACTAL_CARD_BLUR` | `wallpaper` | `wallpaper`: cards show a pre-blurred copy of your wallpaper (cheap, fades smoothly); `live`: Hyprland blurs what is behind (heavier); `off`: opaque |
+| `FRACTAL_CARD_BLUR` | `wallpaper` | `wallpaper`: cards show a pre-blurred copy of your wallpaper; `off`: opaque cards |
+| `FRACTAL_CARD_BLUR_AMOUNT` | `0.5` | how heavy the wallpaper blur is (0..1) |
 | `FRACTAL_WALLPAPER` | Caelestia's current wallpaper | image path to use for the card backdrop |
-| `FRACTAL_CARD_BLUR_ONSET` (live mode only) | `0.4` | how opaque the card backing must be (0..1) before Hyprland switches the blur on |
 | `FRACTAL_CARD_PAD` | `0` | px to grow (+) or shrink (-) cards; their base size matches where windows really sit in their tiles (measured from `hyprctl clients`) |
 | `FRACTAL_ICONS` | on | `off` disables the icon cards |
-| `FRACTAL_CARD_BLUR` | on | `off`: opaque cards, no blur rule |
+| `FRACTAL_CARD_BLUR` | `wallpaper` | `wallpaper`: cards show a pre-blurred copy of your wallpaper; `off`: opaque cards |
+| `FRACTAL_CARD_BLUR_AMOUNT` | `0.5` | how heavy the wallpaper blur is (0..1) |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
 Handle windows are keyed by seam and kept alive: each spans its whole seam, and floating windows
@@ -105,16 +106,18 @@ goes away).
   toolkit uses everywhere). A card whose tile grew (or whose window closed) fades out before its
   window is removed; one hidden by a floating window goes at once, never drawn over it. A faint card
   (alpha < 0.3) takes no input, so taps reach the window beneath.
-- **Blur:** the card's backing is translucent and a layer rule (`blur = true`, re-applied after
-  reloads) makes Hyprland blur what is behind it, like a transparent, blurred foot terminal.
-  Note that what is behind the card is the tile's own tiny window plus whatever shows through it, so
-  this is a frosted preview of the app over the desktop. `FRACTAL_CARD_BLUR=off` gives opaque cards.
-  Needs `decoration.blur` enabled in your Hyprland config (Caelestia's default).
+- **Blur:** the card's backing is translucent over a pre-blurred copy of your wallpaper (the
+  wallpaper decoded at 1/12 size, blurred once with a multi-pass down/up-sample effect, scaled up
+  and cropped to the card's place on screen), so it costs nothing per frame and fades smoothly.
+  `FRACTAL_CARD_BLUR=off` gives opaque cards, `FRACTAL_CARD_BLUR_AMOUNT` the blur strength.
+- **One surface per monitor:** all cards are items in a single screen-sized layer surface whose input
+  mask covers only the cards, so a tile change moves/resizes items instead of reconfiguring a layer
+  surface per card per frame. (Up to 12 cards are tappable at once.)
 - The icon comes from the window class via the desktop entry (`DesktopEntries.heuristicLookup`),
   falling back to the lower-cased class as an icon name, then to a lettered badge.
 - Cards are skipped where a floating window overlaps them (a layer surface would otherwise be
   drawn over that window), and are not rebuilt while you drag a handle.
-- Card windows are kept alive and keyed by window id, and fade in. `Lod.js` holds the (unit-tested)
+- Cards are keyed by window id and fade in. `Lod.js` holds the (unit-tested)
   rules, `IconCard.qml` the card.
 
 ## Install

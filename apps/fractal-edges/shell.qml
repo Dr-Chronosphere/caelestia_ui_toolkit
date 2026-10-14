@@ -48,12 +48,11 @@ ShellRoot {
 
     // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
     // FRACTAL_CARD_BLUR=off gives opaque cards instead.
-    // FRACTAL_CARD_BLUR: "wallpaper" (default) shows a pre-blurred copy of the wallpaper (cheap, fades
-    // smoothly), "live" has Hyprland blur what is behind the card (heavier, all-or-nothing blur),
-    // "off" gives opaque cards.
+    // FRACTAL_CARD_BLUR: "wallpaper" (default) backs cards with a pre-blurred copy of the wallpaper,
+    // "off" gives opaque cards. FRACTAL_CARD_BLUR_AMOUNT (0..1, default 0.5) sets how heavy the blur is.
     readonly property string cardBlurMode: Quickshell.env("FRACTAL_CARD_BLUR") || "wallpaper"
-    readonly property bool cardBlur: cardBlurMode === "live"
     readonly property bool translucent: cardBlurMode !== "off"
+    readonly property real blurAmount: parseFloat(Quickshell.env("FRACTAL_CARD_BLUR_AMOUNT")) >= 0 ? parseFloat(Quickshell.env("FRACTAL_CARD_BLUR_AMOUNT")) : 0.5
 
     // The wallpaper Caelestia is showing (its state file), or FRACTAL_WALLPAPER.
     property string wallpaperPath: Quickshell.env("FRACTAL_WALLPAPER") || ""
@@ -66,10 +65,6 @@ ShellRoot {
         onLoaded: root.wallpaperPath = text().trim()
     }
     readonly property url wallpaperUrl: (cardBlurMode === "wallpaper" && wallpaperPath) ? "file://" + wallpaperPath : ""
-    // Hyprland blurs a pixel fully or not at all (it has no per-surface blur strength), so the blur
-    // switches on once the card's backing is this opaque (0..1); until then the card fades in as a
-    // plain translucent panel and the blur arrives under an already fairly solid card.
-    readonly property real blurOnset: Quickshell.env("FRACTAL_CARD_BLUR_ONSET") !== null && Quickshell.env("FRACTAL_CARD_BLUR_ONSET") !== "" ? parseFloat(Quickshell.env("FRACTAL_CARD_BLUR_ONSET")) : 0.4
 
     // The icon for an app class (window `name` in the status file): its desktop entry's icon,
     // else the lower-cased class as an icon name; the card falls back to a lettered badge.
@@ -228,8 +223,6 @@ ShellRoot {
         if (!roundingProc.running)
             roundingProc.running = true;
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
-        if (cardBlur)
-            Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand(blurOnset)]);
     }
 
     Component.onCompleted: {
@@ -566,6 +559,8 @@ ShellRoot {
                 if (root.profile)
                     root.prof.status++;
                 cardsIdle = false;
+                // Settle quickly once the handle is let go; otherwise wait out any slow layout update.
+                idleTimer.interval = dragging ? 450 : 160;
                 idleTimer.restart();
                 rebuild();
             }
@@ -667,74 +662,99 @@ ShellRoot {
                 }
             }
 
-            // Icon cards cover tiles too small to use; tapping one zooms into that window.
-            Variants {
-                model: scope.cardKeys
+            // Input regions of the first few interactive cards, in card order: [{x, y, w, h}] relative
+            // to the screen. A faint (or fading) card takes no input: taps go to the window beneath.
+            function cardRect(i: int): var {
+                const g = cardMap[cardKeys[i]];
+                if (!g || g.leaving || !(g.alpha > 0.3))
+                    return {
+                        "x": 0,
+                        "y": 0,
+                        "w": 0,
+                        "h": 0
+                    };
+                return {
+                    "x": Math.round(g.x - originX),
+                    "y": Math.round(g.y - originY),
+                    "w": Math.round(g.w),
+                    "h": Math.round(g.h)
+                };
+            }
 
-                delegate: PanelWindow {
-                    id: cardWin
+            // Icon cards cover tiles too small to use; tapping one zooms into that window. All of a
+            // monitor's cards live in ONE screen-sized surface and are moved/resized as items:
+            // resizing a layer surface per card per frame (a configure round-trip each) is what made
+            // live card resizing stutter. Only the card rectangles take input.
+            PanelWindow {
+                screen: scope.modelData
+                visible: scope.cardKeys.length > 0
+                anchors {
+                    top: true
+                    bottom: true
+                    left: true
+                    right: true
+                }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                WlrLayershell.namespace: "caelestia-fractal-card"
+                WlrLayershell.layer: WlrLayer.Top
+                mask: Region {
+                    CardRegion { rect: scope.cardRect(0) }
+                    CardRegion { rect: scope.cardRect(1) }
+                    CardRegion { rect: scope.cardRect(2) }
+                    CardRegion { rect: scope.cardRect(3) }
+                    CardRegion { rect: scope.cardRect(4) }
+                    CardRegion { rect: scope.cardRect(5) }
+                    CardRegion { rect: scope.cardRect(6) }
+                    CardRegion { rect: scope.cardRect(7) }
+                    CardRegion { rect: scope.cardRect(8) }
+                    CardRegion { rect: scope.cardRect(9) }
+                    CardRegion { rect: scope.cardRect(10) }
+                    CardRegion { rect: scope.cardRect(11) }
+                }
 
-                    required property string modelData
+                Repeater {
+                    model: scope.cardKeys
 
-                    readonly property var card: scope.cardMap[modelData]
-                    readonly property bool ready: card !== undefined && card !== null
-                    readonly property var geo: ready ? card : ({
-                            "id": "",
-                            "label": "",
-                            "title": "",
-                            "x": 0,
-                            "y": 0,
-                            "w": 1,
-                            "h": 1,
-                            "alpha": 0,
-                            "leaving": true
-                        })
-
-                    screen: scope.modelData
-                    visible: ready
-                    anchors {
-                        top: true
-                        left: true
-                    }
-                    margins {
-                        left: Math.max(0, Math.round(geo.x - scope.originX))
-                        top: Math.max(0, Math.round(geo.y - scope.originY))
-                    }
-                    implicitWidth: Math.max(1, Math.round(geo.w))
-                    implicitHeight: Math.max(1, Math.round(geo.h))
-                    exclusionMode: ExclusionMode.Ignore
-                    color: "transparent"
-                    WlrLayershell.namespace: "caelestia-fractal-card"
-                    WlrLayershell.layer: WlrLayer.Top
-                    // A faint (or fading) card takes no input: taps go to the window beneath.
-                    mask: Region {
-                        x: 0
-                        y: 0
-                        width: cardItem.interactive ? cardWin.width : 0
-                        height: cardItem.interactive ? cardWin.height : 0
-                    }
-
-                    IconCard {
+                    delegate: IconCard {
                         id: cardItem
 
-                        anchors.fill: parent
-                        alpha: cardWin.geo.alpha !== undefined ? cardWin.geo.alpha : 1
-                        shown: !cardWin.geo.leaving
+                        required property string modelData
+
+                        readonly property var geo: scope.cardMap[modelData] ?? ({
+                                "id": "",
+                                "label": "",
+                                "title": "",
+                                "x": scope.originX,
+                                "y": scope.originY,
+                                "w": 1,
+                                "h": 1,
+                                "alpha": 0,
+                                "leaving": true
+                            })
+
+                        x: Math.round(geo.x - scope.originX)
+                        y: Math.round(geo.y - scope.originY)
+                        width: Math.max(1, Math.round(geo.w))
+                        height: Math.max(1, Math.round(geo.h))
+                        alpha: geo.alpha !== undefined ? geo.alpha : 1
+                        shown: !geo.leaving
                         // Opacity eases only once the layout is still (or the card is leaving); while
                         // you drag it tracks the tile directly, since easing toward a moving
                         // target every few ms lags and stutters.
-                        smooth: scope.cardsIdle || !!cardWin.geo.leaving
+                        smooth: scope.cardsIdle || !!geo.leaving
                         tint: root.translucent ? 0.55 : 1
                         backdrop: root.wallpaperUrl
-                        backdropX: Math.max(0, Math.round(cardWin.geo.x - scope.originX))
-                        backdropY: Math.max(0, Math.round(cardWin.geo.y - scope.originY))
+                        backdropX: x
+                        backdropY: y
                         backdropW: scope.modelData.width
                         backdropH: scope.modelData.height
+                        blurAmount: root.blurAmount
                         cornerRadius: root.cardRadius
-                        iconSource: root.iconFor(cardWin.geo.label)
-                        label: cardWin.geo.label
-                        title: cardWin.geo.title
-                        onActivated: root.zoomTo(cardWin.geo.id)
+                        iconSource: root.iconFor(geo.label)
+                        label: geo.label
+                        title: geo.title
+                        onActivated: root.zoomTo(geo.id)
                     }
                 }
             }

@@ -447,15 +447,6 @@ function piecesFromCovers(thin, axisOfSeam, covers) {
     });
 }
 
-// Blur what is behind the icon cards (like a transparent, blurred foot terminal): a Hyprland layer
-// rule on the card namespace. The cards' backing is translucent, so the blur shows through.
-// Hyprland blurs a pixel fully or not at all, so `ignore_alpha` (the onset) picks how opaque the
-// card's backing must be before the blur switches on.
-function cardBlurRuleCommand(onset) {
-    var a = onset === undefined ? 0.4 : Math.max(0, Math.min(0.95, onset));
-    return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = ' + a + ' })';
-}
-
 // How far real windows sit inside their layout tiles, measured from `hyprctl clients -j` against
 // the status boxes (matched by address): the most common gap on sides shared with a neighbour (`inner`,
 // gaps_in + border) and on sides touching the work area's edge (`edge`, gaps_out + border).

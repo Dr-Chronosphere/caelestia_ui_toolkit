@@ -23,6 +23,8 @@ Item {
     property bool shown: true
     // Ease opacity changes; false makes it follow `alpha` immediately (during a drag).
     property bool smooth: true
+    // Length of the fade once it eases (after the layout settles or when a card leaves).
+    property int fadeMs: 450
     // Tint opacity of the card's backing. The host blurs what is behind the card (a layer rule),
     // so the backing is translucent; use 1 for an opaque card when blur is off.
     property real tint: 0.62
@@ -37,6 +39,8 @@ Item {
     property real backdropW: 0
     property real backdropH: 0
     property int backdropShrink: 12
+    // 0..1 of the effect's maximum blur radius (measured in the tiny image's pixels).
+    property real blurAmount: 0.5
     readonly property bool _gpu: GraphicsInfo.api !== GraphicsInfo.Software
 
     readonly property bool hasIcon: img.status === Image.Ready
@@ -58,6 +62,7 @@ Item {
 
         Anim {
             type: Anim.DefaultEffects
+            duration: root.fadeMs
         }
     }
 
@@ -72,17 +77,41 @@ Item {
             maskSource: frostMask
         }
 
-        Image {
+        // The wallpaper at 1/backdropShrink size, blurred there (cheap: it is tiny and static, so
+        // the effect is rendered once) and scaled up to screen size; MultiEffect's blur is a
+        // multi-pass down/up-sample (Kawase-style), which is soft rather than boxy.
+        Item {
+            id: tiny
+
             x: -root.backdropX
             y: -root.backdropY
-            width: root.backdropW
-            height: root.backdropH
-            source: root.backdrop
-            sourceSize.width: Math.max(8, Math.ceil(root.backdropW / root.backdropShrink))
-            fillMode: Image.PreserveAspectCrop
-            smooth: true
-            asynchronous: true
-            cache: true
+            width: Math.max(8, Math.ceil(root.backdropW / root.backdropShrink))
+            height: Math.max(8, Math.ceil(root.backdropH / root.backdropShrink))
+            scale: root.backdropW / width
+            transformOrigin: Item.TopLeft
+
+            Image {
+                id: wall
+
+                anchors.fill: parent
+                source: root.backdrop
+                sourceSize.width: tiny.width
+                fillMode: Image.PreserveAspectCrop
+                smooth: true
+                asynchronous: true
+                cache: true
+                visible: !root._gpu
+            }
+
+            MultiEffect {
+                anchors.fill: parent
+                visible: root._gpu
+                source: wall
+                autoPaddingEnabled: false
+                blurEnabled: true
+                blurMax: 32
+                blur: root.blurAmount
+            }
         }
     }
 
