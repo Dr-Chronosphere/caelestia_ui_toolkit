@@ -49,6 +49,10 @@ ShellRoot {
     // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
     // FRACTAL_CARD_BLUR=off gives opaque cards instead.
     readonly property bool cardBlur: Quickshell.env("FRACTAL_CARD_BLUR") !== "off"
+    // Hyprland blurs a pixel fully or not at all (it has no per-surface blur strength), so the blur
+    // switches on once the card's backing is this opaque (0..1); until then the card fades in as a
+    // plain translucent panel and the blur arrives under an already fairly solid card.
+    readonly property real blurOnset: Quickshell.env("FRACTAL_CARD_BLUR_ONSET") !== null && Quickshell.env("FRACTAL_CARD_BLUR_ONSET") !== "" ? parseFloat(Quickshell.env("FRACTAL_CARD_BLUR_ONSET")) : 0.4
 
     // The icon for an app class (window `name` in the status file): its desktop entry's icon,
     // else the lower-cased class as an icon name; the card falls back to a lettered badge.
@@ -159,7 +163,7 @@ ShellRoot {
             roundingProc.running = true;
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
         if (cardBlur)
-            Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand()]);
+            Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand(blurOnset)]);
     }
 
     Component.onCompleted: {
@@ -374,11 +378,12 @@ ShellRoot {
                     opts.minH = root.iconMinH;
                 const on = root.iconsEnabled && fractalActive && status;
                 let fresh = on ? Lod.cards(status, blockers, opts) : [];
-                // Resizing stopped short of the threshold: a half-faded card is not wanted, so it
-                // fades the rest of the way out (a fully shown card stays).
+                // While you drag, a card's strength follows how far its tile is past the threshold.
+                // Once the layout is still, a card that has started to show finishes fading in
+                // (the tile is below the threshold, so it should be a card).
                 if (cardsIdle)
-                    fresh = fresh.map(c => c.alpha >= 0.999 ? c : Object.assign({}, c, {
-                            "alpha": 0
+                    fresh = fresh.map(c => c.alpha <= 0 || c.alpha >= 0.999 ? c : Object.assign({}, c, {
+                            "alpha": 1
                         }));
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
                 applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));

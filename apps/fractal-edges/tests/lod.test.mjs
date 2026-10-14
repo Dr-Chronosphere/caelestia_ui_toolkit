@@ -53,9 +53,9 @@ assert.equal(L.initial(""), "?");
 // --- size-dependent fade -------------------------------------------------------------------------------------
 assert.equal(L.alphaFor(1), 0, "invisible at the threshold");
 assert.equal(L.alphaFor(1.2), 0, "and above it");
-assert.ok(Math.abs(L.alphaFor(0.8) - 1) < 1e-9, "fully visible 20% below it");
+assert.ok(Math.abs(L.alphaFor(0.7) - 1) < 1e-9, "fully visible 30% below it");
 assert.equal(L.alphaFor(0.5), 1);
-assert.ok(Math.abs(L.alphaFor(0.9) - 0.5) < 1e-9, "halfway in between");
+assert.ok(Math.abs(L.alphaFor(0.85) - 0.5) < 1e-9, "halfway in between");
 let prevA = 2;
 for (let sc = 1; sc >= 0.7; sc -= 0.02) {              // monotonic: smaller tile => never less visible
   const a = L.alphaFor(sc);

@@ -269,7 +269,8 @@ assert.deepEqual(pf([{ a: 300, b: 400, m: 0 }]), [[40, 260], [400, 440]]);
 assert.deepEqual(pf([{ a: 300, b: 400, m: 6 }]), [[40, 254], [406, 434]], "margin pulls the line back from the window on both sides");
 assert.deepEqual(pf([{ a: 350, b: 350, m: 0 }]), [[40, 800]], "collapsed cover: whole line");
 assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignores its margin (no stray gap)");
-assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.01 })');
+assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.4 })');
+assert.match(S.cardBlurRuleCommand(0.2), /ignore_alpha = 0.2 /);
 console.log("seams tests passed");
 
 const stI = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [

@@ -41,7 +41,7 @@ function scaleOf(box, minW, minH) {
 
 // Card opacity from the tile's scale: invisible at the threshold, fully visible once the tile is
 // FADE below it. So cards fade in as a tile shrinks and out as it grows, instead of popping.
-var FADE = 0.2;
+var FADE = 0.3;
 function alphaFor(scale) {
     return Math.max(0, Math.min(1, (1 - scale) / FADE));
 }
