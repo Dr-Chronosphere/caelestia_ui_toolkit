@@ -130,6 +130,15 @@ gask("show", vseam, 0.75)
 check(lit(800, 640) and not lit(800, 440), "column seam: guide moves down 0.25 of 800 px")
 check(lit(900, 640) and not lit(300, 640) and not lit(1250, 640), "column seam: guide spans x=600..1200 only (700..1300 minus the 100 origin)")
 
+# A floating window over part of the seam: the guide is cut there (layer surfaces would
+# otherwise paint over the window).
+gask("show", seam, 0.5)
+gask("setBlockers", [{"x": 600, "y": 300, "w": 400, "h": 100}])      # layout coords; guide at x=700-100=600
+check(lit(600, 200) and lit(600, 600), "guide visible above and below the floating window")
+check(not lit(600, 350), "guide cut where the floating window covers it")
+gask("setBlockers", [])
+check(lit(600, 350), "guide whole again once the window is gone")
+
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]
 for m in bad:

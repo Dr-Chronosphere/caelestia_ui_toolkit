@@ -88,6 +88,78 @@ ShellRoot {
 
     Component.onDestruction: restoreAnimations()
 
+    // Floating windows sit above the tiled layout, but layer-shell handles would paint over
+    // them, so handles are cut wherever a floating window covers a seam. Refreshed on window
+    // events, and polled lightly while a floating window exists (they can be dragged around
+    // without any event).
+    property string clientsText: ""
+    property string monitorsText: ""
+    readonly property bool floatingPresent: Seams.hasFloating(clientsText)
+    readonly property var floatEvents: ["openwindow", "closewindow", "movewindow", "movewindowv2", "changefloatingmode", "fullscreen", "workspace", "workspacev2", "focusedmon", "focusedmonv2", "activespecial", "activespecialv2", "configreloaded", "pin", "monitoradded", "monitorremoved"]
+
+    function refreshFloating(): void {
+        if (!monitorsProc.running && !clientsProc.running)
+            monitorsProc.running = true;
+    }
+
+    Component.onCompleted: refreshFloating()
+
+    Connections {
+        target: Hyprland
+
+        function onRawEvent(event): void {
+            if (root.floatEvents.indexOf(event.name) >= 0)
+                floatDebounce.restart();
+        }
+    }
+
+    Timer {
+        id: floatDebounce
+
+        interval: 60
+        onTriggered: root.refreshFloating()
+    }
+
+    Timer {
+        interval: 350
+        repeat: true
+        running: root.floatingPresent && !root.shuttingDown
+        onTriggered: root.refreshFloating()
+    }
+
+    Process {
+        id: monitorsProc
+
+        command: ["hyprctl", "monitors", "-j"]
+        stdout: StdioCollector {
+            id: monitorsOut
+
+            waitForEnd: true
+        }
+        onExited: {
+            const t = String(monitorsOut.text || "");
+            if (t !== root.monitorsText)
+                root.monitorsText = t;
+            clientsProc.running = true;
+        }
+    }
+
+    Process {
+        id: clientsProc
+
+        command: ["hyprctl", "clients", "-j"]
+        stdout: StdioCollector {
+            id: clientsOut
+
+            waitForEnd: true
+        }
+        onExited: {
+            const t = String(clientsOut.text || "");
+            if (t !== root.clientsText)
+                root.clientsText = t;
+        }
+    }
+
     // Set by the `quit` IPC call: tear the handle windows down first, then exit. Killing the
     // process outright (`qs kill`) destroys windows whose items own a mouse cursor after Qt can
     // no longer unset it, which aborts inside QWindow::unsetCursor (seen in a crash report).
@@ -131,6 +203,9 @@ ShellRoot {
 
             property var status: null
             property var shownSeams: []
+            property string shownKey: ""
+            property var blockers: []
+            property string blockersKey: ""
             property bool dragging: false
             property var dragSeam: null        // the seam being dragged, for the guide line
             property real dragRatio: 0
@@ -148,7 +223,23 @@ ShellRoot {
                 }
                 if (dragging)
                     return;
-                shownSeams = (fractalActive && status) ? Seams.seams(status, root.grab) : [];
+                const list = (fractalActive && status) ? Seams.clipSeams(Seams.seams(status, root.grab), blockers, 24) : [];
+                // Only replace the handle windows when something actually changed.
+                const key = JSON.stringify(list);
+                if (key === shownKey)
+                    return;
+                shownKey = key;
+                shownSeams = list;
+            }
+
+            function updateBlockers(): void {
+                const list = Seams.floatingRects(root.clientsText, root.monitorsText, modelData.name, 3);
+                const key = JSON.stringify(list);
+                if (key === blockersKey)
+                    return;
+                blockersKey = key;
+                blockers = list;
+                rebuild();
             }
 
             function send(seam, ratio): void {
@@ -161,12 +252,21 @@ ShellRoot {
                 function onShuttingDownChanged(): void {
                     scope.rebuild();
                 }
+                function onClientsTextChanged(): void {
+                    scope.updateBlockers();
+                }
+                function onMonitorsTextChanged(): void {
+                    scope.updateBlockers();
+                }
             }
+
+            Component.onCompleted: updateBlockers()
 
             onStatusChanged: rebuild()
             onFractalActiveChanged: rebuild()
             onWsIdChanged: {
                 status = null;
+                updateBlockers();
                 rebuild();
             }
 
@@ -221,6 +321,7 @@ ShellRoot {
                     ratio: scope.dragRatio
                     originX: scope.originX
                     originY: scope.originY
+                    blockers: scope.blockers
                 }
             }
 

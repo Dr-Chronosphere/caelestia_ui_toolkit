@@ -142,3 +142,131 @@ function parseAnimEnabled(text) {
 function animCommand(on) {
     return "hl.config({ animations = { enabled = " + (on ? "true" : "false") + " } })";
 }
+
+// --- Floating windows ---------------------------------------------------------------------
+// Layer-shell surfaces (the handles) always render above every normal window, floating ones
+// included. So handles must not exist where a floating window is on top of the tiled layout.
+
+// Rects (layout coordinates, grown by `pad` px) of the floating windows that cover the tiled
+// layout of monitor `monitorName`, from `hyprctl clients -j` and `hyprctl monitors -j`:
+// floating, mapped, not hidden, on that monitor, and either on its active workspace, on its
+// currently shown special workspace (scratchpad), or pinned (shown on every workspace).
+function floatingRects(clientsText, monitorsText, monitorName, pad) {
+    pad = pad === undefined ? 3 : pad;
+    var clients, monitors;
+    try {
+        clients = JSON.parse(clientsText);
+        monitors = JSON.parse(monitorsText);
+    } catch (e) {
+        return [];
+    }
+    if (!Array.isArray(clients) || !Array.isArray(monitors))
+        return [];
+    var mon = null;
+    for (var i = 0; i < monitors.length; i++) {
+        if (monitors[i].name === monitorName)
+            mon = monitors[i];
+    }
+    if (!mon)
+        return [];
+    var activeId = mon.activeWorkspace ? mon.activeWorkspace.id : undefined;
+    var specialId = mon.specialWorkspace && mon.specialWorkspace.id ? mon.specialWorkspace.id : 0;
+
+    var out = [];
+    for (var j = 0; j < clients.length; j++) {
+        var c = clients[j];
+        if (!c.floating || c.mapped === false || c.hidden || !c.at || !c.size || c.monitor !== mon.id)
+            continue;
+        var wsId = c.workspace ? c.workspace.id : undefined;
+        var shown = c.pinned || wsId === activeId || (specialId !== 0 && wsId === specialId);
+        if (!shown)
+            continue;
+        out.push({ x: c.at[0] - pad, y: c.at[1] - pad, w: c.size[0] + 2 * pad, h: c.size[1] + 2 * pad });
+    }
+    return out;
+}
+
+// Split the interval [from, to) into the parts not covered by `covered` ([a, b) pairs).
+function uncovered(from, to, covered) {
+    var cuts = covered
+        .map(function (c) { return [Math.max(from, c[0]), Math.min(to, c[1])]; })
+        .filter(function (c) { return c[1] > c[0]; })
+        .sort(function (p, q) { return p[0] - q[0]; });
+    var out = [];
+    var pos = from;
+    for (var i = 0; i < cuts.length; i++) {
+        if (cuts[i][0] > pos)
+            out.push([pos, cuts[i][0]]);
+        pos = Math.max(pos, cuts[i][1]);
+    }
+    if (pos < to)
+        out.push([pos, to]);
+    return out;
+}
+
+// Cut a thin rect ({x, y, w, h}) that runs along `axis` ("x": vertical line, so it runs along y;
+// "y": horizontal line, running along x) into the parts no blocker covers.
+function clipRect(rect, axisOfSeam, blockers) {
+    var along = axisOfSeam === "x" ? "y" : "x";           // direction the rect extends in
+    var lenKey = along === "y" ? "h" : "w";
+    var thickKey = along === "y" ? "w" : "h";
+    var coverKey = along === "y" ? "x" : "y";
+    var covered = [];
+    for (var i = 0; i < blockers.length; i++) {
+        var b = blockers[i];
+        // only blockers that overlap the thin rect across its thickness matter
+        if (b[coverKey] < rect[coverKey] + rect[thickKey] && b[coverKey] + b[thickKey] > rect[coverKey])
+            covered.push([b[along], b[along] + b[lenKey]]);
+    }
+    return uncovered(rect[along], rect[along] + rect[lenKey], covered).map(function (iv) {
+        var r = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+        r[along] = iv[0];
+        r[lenKey] = iv[1] - iv[0];
+        return r;
+    });
+}
+
+// Handles with the floating-window-covered stretches removed. Pieces shorter than `minLen`
+// are dropped (too small to grab). The drag maths (ratio, span) is unchanged per piece.
+function clipSeams(seamList, blockers, minLen) {
+    minLen = minLen === undefined ? 24 : minLen;
+    if (!blockers || blockers.length === 0)
+        return seamList;
+    var out = [];
+    seamList.forEach(function (s) {
+        var pieces = clipRect(s, s.axis, blockers);
+        pieces.forEach(function (r, i) {
+            var len = s.axis === "x" ? r.h : r.w;
+            if (len < minLen)
+                return;
+            var piece = {};
+            for (var k in s)
+                piece[k] = s[k];
+            piece.x = r.x; piece.y = r.y; piece.w = r.w; piece.h = r.h;
+            piece.key = s.key + "#" + i;
+            out.push(piece);
+        });
+    });
+    return out;
+}
+
+// The drag guide, clipped the same way. Coordinates are relative to the monitor origin.
+// Returns an array of {x, y, w, h}.
+function guideRects(seam, ratio, originX, originY, thickness, blockers) {
+    var r = guideRect(seam, ratio, 0, 0, thickness);       // layout coordinates first
+    var pieces = blockers && blockers.length ? clipRect(r, seam.axis, blockers) : [r];
+    return pieces.map(function (p) {
+        return { x: p.x - originX, y: p.y - originY, w: p.w, h: p.h };
+    });
+}
+
+// True if any floating window is mapped and visible (used to decide whether to poll).
+function hasFloating(clientsText) {
+    var clients;
+    try {
+        clients = JSON.parse(clientsText);
+    } catch (e) {
+        return false;
+    }
+    return Array.isArray(clients) && clients.some(function (c) { return c.floating && c.mapped !== false && !c.hidden; });
+}

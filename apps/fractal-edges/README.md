@@ -34,6 +34,12 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
+Floating windows (and scratchpad/special-workspace and pinned windows) always sit above the tiled
+layout, but layer-shell surfaces render above *every* window, so handles and the drag guide are cut
+wherever a floating window covers a seam (pieces shorter than 24 px are dropped). The overlay reads
+`hyprctl clients -j` / `monitors -j` on window events and polls every 350 ms while a floating window
+exists, so dragging a floating window keeps the handles in step.
+
 Handles appear only on workspaces using `lua:fractal`, and only between tiles that are on screen
 (not tabs, not hidden tiles). Handle thickness defaults to 16 px (`FRACTAL_EDGE_GRAB=28` for fingers).
 
@@ -101,4 +107,8 @@ there is no per-window "don't animate" switch to use for the engine's parked win
   re-rendering at each size. `release` mode avoids both. The engine no longer rewrites its state
   file on every `edge` command (status file at once, state at most every 400 ms).
 - Touch: relies on Qt turning touch into mouse events on a `MouseArea`.
+- Floating-window clipping: the overlay assumes `clients -j` / `monitors -j` have the usual fields
+  (`floating`, `at`, `size`, `workspace`, `pinned`, `specialWorkspace`); the geometry is tested with
+  sample data, not against your Hyprland. A floating window *behind* another overlay surface is
+  treated like any other.
 - Handles sit over 8 px of each neighbouring window's edge, and a fullscreen window hides them.

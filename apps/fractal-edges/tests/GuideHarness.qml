@@ -13,6 +13,9 @@ Rectangle {
     function hide() {
         guide.seam = null;
     }
+    function setBlockers(list) {
+        guide.blockers = list;
+    }
 
     Guide {
         id: guide
