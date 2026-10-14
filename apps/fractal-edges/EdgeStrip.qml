@@ -30,6 +30,9 @@ Item {
     // How far (px) the guide may be pulled past the limit before it stops giving.
     property real give: 40
     property real barWidth: 3
+    // Cut animation: how long a shrinking cut takes to settle (ms) and the recoil (px) after a cut-in.
+    property int cutDuration: 260
+    property real cutRecoil: 6
 
     readonly property bool dragging: area.pressed
     readonly property bool horizontal: seam.axis === "x"   // row seam: drag left/right
@@ -71,6 +74,8 @@ Item {
         axis: root.seam.axis
         blockers: Seams.shiftRects(root.blockers, root.seam.x, root.seam.y)
         color: Theme.palette.m3primary
+        duration: root.cutDuration
+        recoil: root.cutRecoil
         opacity: area.pressed ? (root.externalGuide ? 0 : 0.9) : area.containsMouse ? 0.6 : root.idleOpacity
 
         Behavior on opacity {

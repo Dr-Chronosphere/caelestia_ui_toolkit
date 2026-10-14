@@ -376,3 +376,73 @@ function shiftRects(rects, ox, oy) {
         return { x: r.x - ox, y: r.y - oy, w: r.w, h: r.h };
     });
 }
+
+// --- General cut smoothing -------------------------------------------------------------------------------
+// One rule for every change of a cut, whatever caused it (a window moving, resizing, the line
+// sliding past a window's side): a cut that gets BIGGER snaps (so the line is never drawn over a
+// window, not even for a few frames); a cut that gets SMALLER eases, however slightly. A cover is
+// {a, b, m}: the covered extent along the line plus a margin `m` that is added on both sides.
+// The margin is the "recoil": the line snaps to the window's edge, then pulls back from it.
+
+// Target covers for blockerSpans() output: blockers that overlap the line cover [a, b] plus
+// `recoil` px; the others collapse to their centre (nothing covered).
+function coverTargets(spans, recoil) {
+    recoil = recoil === undefined ? 6 : recoil;
+    return (spans || []).map(function (s) {
+        if (s.on)
+            return { a: s.a, b: s.b, m: recoil };
+        var c = (s.a + s.b) / 2;
+        return { a: c, b: c, m: 0 };
+    });
+}
+
+function coversEqual(x, y) {
+    if (x.length !== y.length)
+        return false;
+    for (var i = 0; i < x.length; i++) {
+        if (Math.abs(x[i].a - y[i].a) > 0.2 || Math.abs(x[i].b - y[i].b) > 0.2 || Math.abs(x[i].m - y[i].m) > 0.2)
+            return false;
+    }
+    return true;
+}
+
+// Advance displayed covers `cur` toward targets `tgt`; `k` (0..1) is how much of the remaining
+// distance an easing step covers. Returns { covers, done }.
+function stepCovers(cur, tgt, k) {
+    var done = true;
+    var out = cur.map(function (c, i) {
+        var t = tgt[i];
+        // start edge: a smaller `a` means the cover grew (snap); a larger one means it shrank (ease)
+        var a = t.a < c.a ? t.a : c.a + (t.a - c.a) * k;
+        // end edge: a larger `b` means the cover grew (snap)
+        var b = t.b > c.b ? t.b : c.b + (t.b - c.b) * k;
+        // margin: moves away from / toward the window, always smooth
+        var m = c.m + (t.m - c.m) * k;
+        if (Math.abs(a - t.a) < 0.2) a = t.a;
+        if (Math.abs(b - t.b) < 0.2) b = t.b;
+        if (Math.abs(m - t.m) < 0.2) m = t.m;
+        if (a !== t.a || b !== t.b || m !== t.m)
+            done = false;
+        return { a: a, b: b, m: m };
+    });
+    return { covers: out, done: done };
+}
+
+// The pieces of the line left uncovered by `covers` ({a, b, m} each; empty covers are skipped).
+// `thin` is the line's rect; returns rects in the same coordinates.
+function piecesFromCovers(thin, axisOfSeam, covers) {
+    var along = axisOfSeam === "x" ? "y" : "x";
+    var lenKey = along === "y" ? "h" : "w";
+    var covered = [];
+    for (var i = 0; i < covers.length; i++) {
+        var c = covers[i];
+        if (c.b - c.a > 0.01)
+            covered.push([c.a - c.m, c.b + c.m]);
+    }
+    return uncovered(thin[along], thin[along] + thin[lenKey], covered).map(function (iv) {
+        var r = { x: thin.x, y: thin.y, w: thin.w, h: thin.h };
+        r[along] = iv[0];
+        r[lenKey] = iv[1] - iv[0];
+        return r;
+    });
+}

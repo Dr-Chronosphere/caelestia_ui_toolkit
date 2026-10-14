@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -220,4 +220,53 @@ assert.equal(pc([{ x: 600, y: 100, w: 200, h: 150 }], 24).length, 2, "a window i
 assert.equal(pc([{ x: 600, y: 60, w: 200, h: 770 }], 24).length, 0, "only slivers left: nothing to grab");
 assert.equal(pc([{ x: 600, y: 60, w: 200, h: 770 }], 5).length, 2, "minLen is a parameter");
 assert.deepEqual(plain(S.shiftRects([{ x: 700, y: 100, w: 5, h: 6 }], 692, 40)), [{ x: 8, y: 60, w: 5, h: 6 }]);
+// --- general cut smoothing -------------------------------------------------------------------------------
+const spansIn = [{ a: 300, b: 400, on: true }, { a: 600, b: 700, on: false }];
+const tg = plain(S.coverTargets(spansIn, 6));
+assert.deepEqual(tg, [{ a: 300, b: 400, m: 6 }, { a: 650, b: 650, m: 0 }], "on: the window's extent + recoil; off: collapsed at the centre");
+assert.equal(S.coversEqual(tg, plain(tg)), true);
+assert.equal(S.coversEqual(tg, [{ a: 300, b: 401, m: 6 }, tg[1]]), false);
+
+const step = (cur, t, k) => plain(S.stepCovers(cur, t, k));
+// GROWTH snaps: a collapsed cover whose target is the window's extent jumps there at once (a, b), the margin eases
+let r = step([{ a: 350, b: 350, m: 0 }], [{ a: 300, b: 400, m: 6 }], 0.1);
+assert.equal(r.covers[0].a, 300, "cut-in: start snaps");
+assert.equal(r.covers[0].b, 400, "cut-in: end snaps");
+assert.ok(r.covers[0].m > 0 && r.covers[0].m < 6, "the recoil margin eases in (always away from the window)");
+assert.equal(r.done, false);
+// SHRINKING eases, at both ends, toward the centre
+r = step([{ a: 300, b: 400, m: 6 }], [{ a: 350, b: 350, m: 0 }], 0.5);
+assert.deepEqual([r.covers[0].a, r.covers[0].b, r.covers[0].m], [325, 375, 3]);
+// ...and converges exactly
+let cov = [{ a: 300, b: 400, m: 6 }];
+let n = 0;
+for (; n < 200; n++) {
+  const st = plain(S.stepCovers(cov, [{ a: 350, b: 350, m: 0 }], 0.2));
+  cov = st.covers;
+  if (st.done) break;
+}
+assert.ok(n < 60, `converges in ${n} steps`);
+assert.deepEqual(cov, [{ a: 350, b: 350, m: 0 }]);
+// SMALL changes animate too (the case that used to snap): the window moves 10px down. Its end grows
+// (snaps, so no overlap); its start shrinks (eases).
+r = step([{ a: 300, b: 400, m: 6 }], [{ a: 310, b: 410, m: 6 }], 0.3);
+assert.equal(r.covers[0].b, 410, "the edge the window moves toward snaps: never drawn over the window");
+assert.ok(r.covers[0].a > 300 && r.covers[0].a < 310, "the edge it leaves eases");
+// never overlap: while moving or emerging, the displayed cover always contains the window's extent
+// (including after a size increase of just a few px)
+for (const [from, to] of [[[300, 400], [305, 412]], [[300, 400], [296, 403]], [[300, 400], [300, 404]]]) {
+  let c = [{ a: from[0], b: from[1], m: 6 }];
+  const target = [{ a: to[0], b: to[1], m: 6 }];
+  for (let i = 0; i < 30; i++) {
+    c = plain(S.stepCovers(c, target, 0.25)).covers;
+    assert.ok(c[0].a <= Math.max(to[0], from[0]) && c[0].b >= to[1], "the cover always reaches the window's far edge");
+    assert.ok(c[0].a - c[0].m <= to[0] || c[0].a >= to[0], "(start edge only ever eases toward the window's start)");
+  }
+}
+// pieces from covers: a 100px cover (+ margin) cut out of a line 40..840
+const pf = (covers) => plain(S.piecesFromCovers({ x: 0, y: 40, w: 3, h: 800 }, "x", covers)).map(q => [q.y, q.h]);
+assert.deepEqual(pf([{ a: 300, b: 400, m: 0 }]), [[40, 260], [400, 440]]);
+assert.deepEqual(pf([{ a: 300, b: 400, m: 6 }]), [[40, 254], [406, 434]], "margin pulls the line back from the window on both sides");
+assert.deepEqual(pf([{ a: 350, b: 350, m: 0 }]), [[40, 800]], "collapsed cover: whole line");
+assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignores its margin (no stray gap)");
 console.log("seams tests passed");

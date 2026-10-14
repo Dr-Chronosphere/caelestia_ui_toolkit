@@ -28,6 +28,19 @@ ShellRoot {
     // Minimum ms between live resize commands.
     readonly property int interval: parseInt(Quickshell.env("FRACTAL_EDGE_INTERVAL")) || 33
 
+    // Cut animation tuning: how long a shrinking cut takes to settle, and how far (px) the line
+    // pulls back from a floating window after cutting in (0 = no recoil).
+    readonly property int settleMs: parseInt(Quickshell.env("FRACTAL_EDGE_SETTLE")) || 260
+    readonly property real recoilPx: Quickshell.env("FRACTAL_EDGE_RECOIL") !== null && Quickshell.env("FRACTAL_EDGE_RECOIL") !== "" ? parseFloat(Quickshell.env("FRACTAL_EDGE_RECOIL")) : 6
+
+    // FRACTAL_EDGE_DEBUG=1 logs what the overlay does (drags, handle windows appearing/vanishing,
+    // floating windows changing) with a millisecond clock, to correlate with anything that looks off.
+    readonly property bool debug: Quickshell.env("FRACTAL_EDGE_DEBUG") === "1"
+    function dbg(msg: string): void {
+        if (debug)
+            console.log("[fractal-edges " + (Date.now() % 100000) + "] " + msg);
+    }
+
     // Switch Hyprland's animations off while a handle is dragged (so tiles follow the pointer
     // instead of easing toward it) and back on afterwards. `FRACTAL_EDGE_ANIM=keep` opts out.
     // If the overlay ever dies mid-drag, `hyprctl reload` restores your animation settings.
@@ -40,6 +53,7 @@ ShellRoot {
     }
 
     function dragBegan(): void {
+        dbg("drag began");
         activeDrags++;
         restoreTimer.stop();
         if (!suspendAnimations || animSuspended || activeDrags !== 1)
@@ -48,6 +62,7 @@ ShellRoot {
     }
 
     function dragEnded(): void {
+        dbg("drag ended");
         activeDrags = Math.max(0, activeDrags - 1);
         if (activeDrags === 0 && animSuspended)
             restoreTimer.restart();
@@ -259,6 +274,7 @@ ShellRoot {
                     return;
                 mapKey = newMapKey;
                 const newKeysKey = JSON.stringify(keys);
+                root.dbg(modelData.name + ": handles " + (newKeysKey !== keysKey ? "CHANGED (windows created/destroyed) " + newKeysKey : "moved/resized (windows kept)"));
                 if (newKeysKey !== keysKey) {
                     keysKey = newKeysKey;
                     // Old entries stay readable until their windows are gone.
@@ -280,6 +296,7 @@ ShellRoot {
                     return;
                 blockersKey = key;
                 blockers = list;
+                root.dbg(modelData.name + ": floating windows now " + key);
                 rebuild();
             }
 
@@ -331,6 +348,7 @@ ShellRoot {
 
                 interval: 240
                 onTriggered: {
+                    root.dbg("guide fading");
                     scope.fadeGuide = true;
                     fadeTimer.restart();
                 }
@@ -388,6 +406,8 @@ ShellRoot {
                     blockers: scope.blockers
                     settling: scope.settling
                     fading: scope.fadeGuide
+                    cutDuration: root.settleMs
+                    cutRecoil: root.recoilPx
                 }
             }
 
@@ -486,6 +506,8 @@ ShellRoot {
                         anchors.fill: parent
                         seam: win.geo
                         blockers: scope.blockers
+                        cutDuration: root.settleMs
+                        cutRecoil: root.recoilPx
                         onDragStarted: {
                             root.dragBegan();
                             settleTimer.stop();

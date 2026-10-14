@@ -30,9 +30,11 @@ Item {
     property bool fading: false
     // Floating-window rects in layout coordinates (Seams.floatingRects).
     property var blockers: []
-    // How long a cut takes to close up when the line emerges from a window, and the rubber
-    // band takes to settle: one value so they feel the same. (Cutting in is instant.)
+    // How long a shrinking cut takes to close up when the line emerges from a window, and the
+    // rubber band takes to settle: one value so they feel the same. (Cutting in is instant.)
     property int cutDuration: 260
+    // Px the line pulls back from a window after cutting in (0 = none).
+    property real cutRecoil: 6
 
     // px past the seam's limits (0 inside them): the line thickens as it is pulled further.
     readonly property real over: seam ? Math.max(0, (seam.lo !== undefined ? seam.lo : 0.05) - ratio, ratio - (seam.hi !== undefined ? seam.hi : 0.95)) * seam.span : 0
@@ -70,5 +72,6 @@ Item {
         blockers: Seams.shiftRects(root.blockers, root.originX, root.originY)
         color: Theme.palette.m3primary
         duration: root.cutDuration
+        recoil: root.cutRecoil
     }
 }

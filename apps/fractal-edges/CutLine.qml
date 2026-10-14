@@ -4,14 +4,14 @@ import "Seams.js" as Seams
 // A straight line (given as a rect) that is cut around blocker rects. Shared by the drag guide
 // and the handle bar.
 //
-// All coordinates (line, blockers) are in the same frame. The cut around a blocker is its
-// extent scaled by a per-blocker amount (0..1) around its centre.
+// All coordinates (line, blockers) are in the same frame. One rule governs every change of a cut,
+// whatever caused it (the line sliding past a window's side, a window moving or resizing):
 //
-// - Cutting IN is instant. A line that moves under a window must never be drawn over it, not
-//   even for the few frames an animation would take (it looks natural too: the line simply goes
-//   behind the window).
-// - Cutting OUT is animated: when the line emerges from a window, the gap closes inward from
-//   both ends toward its centre.
+// - A cut that gets BIGGER is applied at once, so the line is never drawn over a window, not
+//   even for the few frames an animation would take.
+// - A cut that gets SMALLER eases (the gap closes inward from both ends), however slightly.
+// - On a cut-in the line also recoils: it snaps to the window's edge, then pulls back `recoil`
+//   px from it. That motion is always away from the window, so it cannot overlap.
 Item {
     id: root
 
@@ -22,73 +22,55 @@ Item {
     property var blockers: []
     property color color: "white"
     property int radius: 2
+    // Roughly how long a shrinking cut takes to settle, in ms.
     property int duration: 260
+    // Px the line pulls back from a window after cutting in (0 disables the recoil).
+    property real recoil: 6
 
-    property var spans: []
-    property var prevT: []
-    property var targetT: []
-    property real progress: 1
-    readonly property real eased: 1 - Math.pow(1 - progress, 3)
+    // Displayed and target covers per blocker ({a, b, m}, see Seams.coverTargets).
+    property var cur: []
+    property var tgt: []
+    property bool animating: false
 
-    readonly property var pieces: line ? Seams.guidePieces(line, axis, spans, prevT, targetT, eased) : []
+    readonly property real tauMs: duration / 3.7
+    readonly property var pieces: line ? Seams.piecesFromCovers(line, axis, cur) : []
 
-    function currentT(): var {
-        return prevT.map(function (p, i) {
-            return p + (targetT[i] - p) * eased;
-        });
-    }
-
-    // Recompute overlaps. `snap`: jump instead of animating (first state, or the set of
-    // blockers changed in number).
+    // Recompute targets. `snap`: jump everything (first state, or the set of blockers changed in
+    // number). Otherwise growth is applied immediately and the rest eases on the next frames.
     function retarget(snap: bool): void {
         if (!line) {
-            spans = [];
-            prevT = [];
-            targetT = [];
-            progress = 1;
-            cutAnim.stop();
+            cur = [];
+            tgt = [];
+            animating = false;
             return;
         }
-        const sp = Seams.blockerSpans(line, axis, blockers);
-        const nt = sp.map(function (s) {
-            return s.on ? 1 : 0;
-        });
-        spans = sp;
-        if (snap || targetT.length !== nt.length) {
-            prevT = nt;
-            targetT = nt;
-            progress = 1;
-            cutAnim.stop();
+        const t = Seams.coverTargets(Seams.blockerSpans(line, axis, blockers), recoil);
+        tgt = t;
+        if (snap || cur.length !== t.length) {
+            cur = t;
+            animating = false;
             return;
         }
-        if (nt.every(function (v, i) {
-            return v === targetT[i];
-        }))
-            return;
-        // Blockers that now cut MORE jump straight to their target (prev = target); the ones
-        // that cut less ease from where they are now.
-        const base = currentT();
-        prevT = base.map(function (b, i) {
-            return nt[i] > b ? nt[i] : b;
-        });
-        targetT = nt;
-        progress = 0;
-        cutAnim.restart();
+        const r = Seams.stepCovers(cur, t, 0);     // k = 0: only the snapping (growing) parts move
+        cur = r.covers;
+        animating = !r.done;
     }
 
     onLineChanged: retarget(false)
     onBlockersChanged: retarget(false)
     onAxisChanged: retarget(true)
+    onRecoilChanged: retarget(false)
 
-    NumberAnimation {
-        id: cutAnim
+    FrameAnimation {
+        running: root.animating
 
-        target: root
-        property: "progress"
-        from: 0
-        to: 1
-        duration: root.duration
-        easing.type: Easing.Linear
+        onTriggered: {
+            const k = 1 - Math.exp(-(frameTime * 1000) / root.tauMs);
+            const r = Seams.stepCovers(root.cur, root.tgt, k);
+            root.cur = r.covers;
+            if (r.done)
+                root.animating = false;
+        }
     }
 
     Repeater {

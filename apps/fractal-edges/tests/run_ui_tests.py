@@ -329,6 +329,47 @@ check(not any(t[1] and not (t[0] and t[2]) for t in shapes), "the centre is neve
 QTest.mouseRelease(fview, Qt.LeftButton, Qt.NoModifier, QPoint(608, 100))
 QTest.qWait(300)
 
+# 4) Cut-in recoil: the line first reaches the window's edge, then pulls back ~6px (always away from it).
+QTest.mousePress(fview, Qt.LeftButton, Qt.NoModifier, QPoint(308, 100))
+QTest.qWait(50)
+QTest.mouseMove(fview, QPoint(308 + 300, 100))
+QTest.qWait(500)
+QTest.mouseMove(fview, QPoint(308, 100))                # back under the window (y 250..350)
+recoil = []
+for _ in range(16):
+    g = fview.grabWindow()
+    recoil.append((flit(g, 308, 247), sum(1 for y in range(250, 350) if flit(g, 308, y))))
+    QTest.qWait(10)
+check(recoil[0][0], f"cut-in snaps to the window's edge first (just above it is still drawn: {recoil[0]})")
+check(not recoil[-1][0], "then the line pulls back from the window (the pixel above the edge is clear)")
+check(all(c == 0 for _, c in recoil), "and at no frame is any of the line drawn over the window")
+QTest.mouseRelease(fview, Qt.LeftButton, Qt.NoModifier, QPoint(308, 100))
+QTest.qWait(600)
+
+# 5) Small changes animate too: the floating window moves up by 10px (250..350 -> 240..340).
+QTest.mouseMove(fview, QPoint(308, 100))
+QTest.qWait(400)
+
+
+def strip_rows(y0, y1):
+    g = fview.grabWindow()
+    return sum(1 for y in range(y0, y1) if flit(g, 308, y))
+
+
+fask("setBlockers", [{"x": 250, "y": 240, "w": 200, "h": 100}])
+small = []
+for _ in range(14):
+    small.append((strip_rows(346, 356), strip_rows(232, 244)))     # (lower piece growing upward, upper piece's end)
+    QTest.qWait(10)
+check(small[0][1] == 0 or small[0][1] <= 4, f"the edge the window moves toward snaps: the upper piece never overlaps ({small[0]})")
+lower = [a for a, _ in small]
+check(all(b >= a for a, b in zip(lower, lower[1:])), f"the lower piece grows monotonically ({lower})")
+check(lower[-1] >= 9, f"and reaches its new end ({lower[-1]})")
+check(any(1 <= v <= 8 for v in lower), f"through partial states: a 10px change is animated, not snapped ({lower})")
+fask("setBlockers", [{"x": 250, "y": 250, "w": 200, "h": 100}])
+QTest.qWait(500)
+QTest.mouseMove(fview, QPoint(1200, 800))
+
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]
 for m in bad:

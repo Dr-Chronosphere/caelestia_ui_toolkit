@@ -52,10 +52,9 @@ Item {
     function cutState() {
         const c = guide.cutLine;
         return JSON.stringify({
-            "spans": c.spans,
-            "prevT": c.prevT,
-            "targetT": c.targetT,
-            "progress": c.progress
+            "cur": c.cur,
+            "tgt": c.tgt,
+            "animating": c.animating
         });
     }
 

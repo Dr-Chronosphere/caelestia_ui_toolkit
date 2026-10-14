@@ -32,6 +32,9 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_MODE` | `live` | `live`: tiles follow the drag. `release`: only the guide line moves; tiles snap on release (no lag, no mid-drag reflow) |
 | `FRACTAL_EDGE_INTERVAL` | `33` | minimum ms between live resize commands |
 | `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
+| `FRACTAL_EDGE_SETTLE` | `260` | ms for a shrinking cut (and the rubber-band spring-back) to settle |
+| `FRACTAL_EDGE_RECOIL` | `6` | px the line pulls back from a floating window after cutting in (`0` = none) |
+| `FRACTAL_EDGE_DEBUG` | off | `1`: log drags, handle windows appearing/vanishing and floating-window changes with a ms clock (run `qs -p apps/fractal-edges` in a terminal to see it) |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
 Handle windows are keyed by seam and kept alive: each spans its whole seam, and floating windows
@@ -41,12 +44,17 @@ starts cut can grow back to its full length, and that growth is animated like th
 (they share `CutLine.qml`). After a drag the guide springs to the limit, then fades out so it
 cross-fades with the handle bar instead of vanishing.
 
-Cuts around floating windows behave differently in the two directions (`CutLine.qml`):
+Every change of a cut follows one rule (`CutLine.qml`; the rules are pure functions in `Seams.js`,
+unit-tested), whether it comes from the line sliding past a window or from a window moving or
+resizing by just a few pixels:
 
-- **Cutting in is instant.** A line that moves under a window is cut at once, so it is never drawn
+- **A cut that gets bigger is applied at once**, plus a small *recoil*: the line snaps to the window's
+  edge, then pulls back 6 px from it (always away from the window, so it never overlaps).
+  Before the recoil: **cutting in is instant.** A line that moves under a window is cut at once, so it is never drawn
   over the window, however fast you drag (an animated cut-in left the line over the window for the
   few frames it took).
-- **Cutting out is animated.** When the line emerges from behind a window, the gap closes inward
+- **A cut that gets smaller eases** (by any amount, not just a full uncover).
+  Before: **cutting out is animated.** When the line emerges from behind a window, the gap closes inward
   from both ends toward the window's centre, over 260 ms with an ease-out. The rubber-band
   spring-back uses the same duration and curve (`Guide.cutDuration`) so the two feel alike.
 
