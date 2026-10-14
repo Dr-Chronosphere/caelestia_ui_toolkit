@@ -391,6 +391,8 @@ ShellRoot {
                     "frac": root.iconFrac,
                     "inset": ins.inner - root.cardOutset,
                     "outset": root.cardOutset - ins.edge,
+                    "prev": cardMap,
+                    "idle": cardsIdle,
                     "bounds": {
                         "x": originX,
                         "y": originY,
@@ -403,14 +405,7 @@ ShellRoot {
                 if (root.iconMinH !== undefined)
                     opts.minH = root.iconMinH;
                 const on = root.iconsEnabled && fractalActive && status;
-                let fresh = on ? Lod.cards(status, blockers, opts) : [];
-                // While you drag, a card's strength follows how far its tile is past the threshold.
-                // Once the layout is still, a card that has started to show finishes fading in
-                // (the tile is below the threshold, so it should be a card).
-                if (cardsIdle)
-                    fresh = fresh.map(c => c.alpha <= 0 || c.alpha >= 0.999 ? c : Object.assign({}, c, {
-                            "alpha": 1
-                        }));
+                const fresh = on ? Lod.cards(status, blockers, opts) : [];
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
                 applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));
             }

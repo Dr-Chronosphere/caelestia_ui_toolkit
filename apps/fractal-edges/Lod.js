@@ -46,6 +46,26 @@ function alphaFor(scale) {
     return Math.max(0, Math.min(1, (1 - scale) / FADE));
 }
 
+// The fade-out curve, on the other side of the threshold: full at the threshold, gone FADE above it.
+// Fade-in is pinned to crossing the threshold while shrinking, fade-out to crossing it again while
+// growing, so the card has a little hysteresis instead of retracing one curve both ways.
+function alphaOut(scale) {
+    return Math.max(0, Math.min(1, 1 - (scale - 1) / FADE));
+}
+
+// Next opacity given where the card was: shrinking can only raise it (to the fade-in curve),
+// growing can only lower it (to the fade-out curve), a still tile keeps it. `prev` is the card's
+// previous { alpha, scale } (undefined for a new card).
+function nextAlpha(prev, scale) {
+    if (!prev || prev.leaving)
+        return alphaFor(scale);
+    if (scale < prev.scale)
+        return Math.max(prev.alpha, alphaFor(scale));
+    if (scale > prev.scale)
+        return Math.min(prev.alpha, alphaOut(scale));
+    return prev.alpha;
+}
+
 // The icon cards to show: small windows, minus any card a floating window overlaps (a layer
 // surface would be drawn over it).
 // "Small" is relative to the work area: a tile narrower than frac * area.w or shorter than
@@ -55,7 +75,8 @@ function alphaFor(scale) {
 // with Seams.measureInsets); on sides where the tile touches the work area's edge the offset is
 // -`outset` instead (outset = -(gaps_out), or positive to grow past the edge), clamped to `bounds`
 // (the monitor, {x,y,w,h}) when given.
-// opts: { frac, minW, minH, inset, outset, bounds }.
+// opts: { frac, minW, minH, inset, outset, bounds, prev, idle }: `prev` is the previous cards by id
+// (for the fade hysteresis), `idle` finishes every fade.
 // Returns [{ id, address, label, title, x, y, w, h, scale, alpha }] sorted by id.
 function thresholds(status, opts) {
     opts = opts || {};
@@ -92,14 +113,19 @@ function cards(status, blockers, opts) {
     var inset = opts.inset === undefined ? 0 : opts.inset;
     var outset = opts.outset === undefined ? 0 : opts.outset;
     var out = [];
-    smallWindows(status, minW, minH).forEach(function (w) {
+    var prev = opts.prev || {};
+    smallWindows(status, minW * (1 + FADE), minH * (1 + FADE)).forEach(function (w) {
+        var sc = scaleOf(w.box, minW, minH);
+        // Once the layout is still: below the threshold the card is complete, above it is gone.
+        var alpha = opts.idle ? (sc < 1 ? 1 : 0) : nextAlpha(prev[w.id], sc);
+        if (alpha <= 0 && sc >= 1)
+            return;
         var r = cardRect(w.box, status.area, inset, outset, opts.bounds);
         for (var i = 0; i < (blockers || []).length; i++) {
             if (intersects(r, blockers[i]))
                 return;
         }
-        var sc = scaleOf(w.box, minW, minH);
-        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alphaFor(sc) });
+        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alpha });
     });
     out.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return out;

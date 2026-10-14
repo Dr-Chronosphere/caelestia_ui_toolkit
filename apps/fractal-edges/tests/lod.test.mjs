@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Lod.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,thresholds,iconSize,showLabel,initial,scaleOf,alphaFor,reconcile,purge};", ctx);
+vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,thresholds,iconSize,showLabel,initial,scaleOf,alphaFor,alphaOut,nextAlpha,reconcile,purge};", ctx);
 const L = ctx.L;
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -110,3 +110,25 @@ assert.equal(od.x + od.w, 1312, "grows 12px past the right work-area edge");
 assert.equal(od.y + od.h, 852, "and the bottom");
 const cl = plain(L.cards(status, [], { minW: 350, minH: 100, inset: 0, outset: 12, bounds: { x: 0, y: 0, w: 1305, h: 845 } })).find(k => k.address === "d");
 assert.equal(cl.x + cl.w, 1305, "clamped to the monitor");
+// --- hysteresis: fade-in pinned to the threshold going in, fade-out to the threshold going out ---
+assert.equal(L.alphaOut(1), 1);
+assert.equal(L.alphaOut(1.3) , 0);
+assert.ok(Math.abs(L.alphaOut(1.15) - 0.5) < 1e-9);
+assert.equal(L.nextAlpha(undefined, 1.1), 0, "new card above the threshold: nothing");
+assert.ok(Math.abs(L.nextAlpha(undefined, 0.85) - 0.5) < 1e-9);
+assert.equal(L.nextAlpha({ alpha: 1, scale: 0.5 }, 0.9), 1, "fully in stays in while growing up to the threshold");
+assert.equal(L.nextAlpha({ alpha: 1, scale: 0.9 }, 1), 1, "...and only starts fading once it passes it");
+assert.ok(Math.abs(L.nextAlpha({ alpha: 1, scale: 1 }, 1.15) - 0.5) < 1e-9);
+assert.equal(L.nextAlpha({ alpha: 0.5, scale: 0.85 }, 0.9), 0.5, "a half-faded card does not retreat while still below the threshold");
+assert.equal(L.nextAlpha({ alpha: 0.5, scale: 1.15 }, 1.1), 0.5, "shrinking back keeps it until it passes the threshold");
+{
+  const wide = { area: status.area, tree: { kind: "window", id: "w", address: "w", name: "x", title: "", box: { x: 100, y: 40, w: 1200 * 0.25 * 1.15, h: 800 } } };
+  const o = { frac: 0.25, outset: 0, inset: 0 };
+  assert.equal(plain(L.cards(wide, [], o)).length, 0, "just above the threshold, no prev: no card");
+  const had = { w: { alpha: 1, scale: 1 } };
+  const k = plain(L.cards(wide, [], { ...o, prev: had }));
+  assert.equal(k.length, 1);
+  assert.ok(Math.abs(k[0].alpha - 0.5) < 1e-6, "fading out above the threshold");
+  assert.equal(plain(L.cards(wide, [], { ...o, prev: had, idle: true })).length, 0, "idle above the threshold: gone");
+}
+console.log("hysteresis ok");
