@@ -198,3 +198,12 @@ Surfaces in one layer stack by creation order, and `order` layer rules only affe
 so cards are Top-layer while the handles and the guide are Overlay: they always draw above the cards
 (and the rubber-band overshoot is visible). Caveat: Overlay is above Caelestia's own Top-layer
 drawers, so a handle can still cover a popout where they overlap.
+
+## Diagnosing smoothness
+
+`FRACTAL_EDGE_PROFILE=1 bin/caelestia-fractal-edges restart`, drag a handle, then read the log with
+`qs -p <path to apps/fractal-edges> log`. Every 2 s it prints UI-thread frame count, frames over 24 ms
+and the worst gap (stalls in the overlay itself), how many layout status updates and card rebuilds
+happened, and rebuild cost; each rebuild also prints every card's `scale`, `alpha` and fade `mode`.
+Many slow frames means the overlay is stalling; none but visible stutter means the lag is Hyprland
+or the status file's update rate (compare `status=` to the drag speed).

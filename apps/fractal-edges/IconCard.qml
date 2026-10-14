@@ -20,6 +20,8 @@ Item {
     property real alpha: 1
     // False while the card fades out because its tile grew (or the window closed).
     property bool shown: true
+    // Ease opacity changes; false makes it follow `alpha` immediately (during a drag).
+    property bool smooth: true
     // Tint opacity of the card's backing. The host blurs what is behind the card (a layer rule),
     // so the backing is translucent; use 1 for an opaque card when blur is off.
     property real tint: 0.62
@@ -41,6 +43,8 @@ Item {
     opacity: (ready && shown) ? alpha : 0
 
     Behavior on opacity {
+        enabled: root.smooth
+
         Anim {
             type: Anim.DefaultEffects
         }

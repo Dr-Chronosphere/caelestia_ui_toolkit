@@ -73,6 +73,55 @@ ShellRoot {
     // FRACTAL_EDGE_DEBUG=1 logs what the overlay does (drags, handle windows appearing/vanishing,
     // floating windows changing) with a millisecond clock, to correlate with anything that looks off.
     readonly property bool debug: Quickshell.env("FRACTAL_EDGE_DEBUG") === "1"
+    // FRACTAL_EDGE_PROFILE=1 logs smoothness data every 2 s: UI-thread frame gaps (stalls), how
+    // often the layout status changes and cards are rebuilt, how long a rebuild takes, and each
+    // card's scale/alpha/mode when it changes. Read with `qs -p <dir> log`.
+    readonly property bool profile: Quickshell.env("FRACTAL_EDGE_PROFILE") === "1"
+    property var prof: ({
+            "frames": 0,
+            "slow": 0,
+            "worst": 0,
+            "status": 0,
+            "rebuilds": 0,
+            "rebuildMs": 0,
+            "rebuildWorst": 0
+        })
+    property real lastFrameMs: 0
+    FrameAnimation {
+        running: root.profile
+        onTriggered: {
+            const now = Date.now();
+            if (root.lastFrameMs > 0) {
+                const gap = now - root.lastFrameMs;
+                root.prof.frames++;
+                if (gap > 24)
+                    root.prof.slow++;
+                root.prof.worst = Math.max(root.prof.worst, gap);
+            }
+            root.lastFrameMs = now;
+        }
+    }
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.profile
+        onTriggered: {
+            const p = root.prof;
+            if (p.frames > 0 || p.status > 0) {
+                console.log("[fractal-prof " + (Date.now() % 100000) + "] frames=" + p.frames + " slow(>24ms)=" + p.slow + " worstGap=" + p.worst + "ms | status=" + p.status + " rebuilds=" + p.rebuilds + " avgRebuild=" + (p.rebuilds ? (p.rebuildMs / p.rebuilds).toFixed(2) : 0) + "ms worstRebuild=" + p.rebuildWorst + "ms");
+            }
+            root.prof = {
+                "frames": 0,
+                "slow": 0,
+                "worst": 0,
+                "status": 0,
+                "rebuilds": 0,
+                "rebuildMs": 0,
+                "rebuildWorst": 0
+            };
+        }
+    }
+
     function dbg(msg: string): void {
         if (debug)
             console.log("[fractal-edges " + (Date.now() % 100000) + "] " + msg);
@@ -337,7 +386,8 @@ ShellRoot {
                     cardKeys = r.keys;
                 }
                 cardMap = r.map;
-                if (r.keys.some(k => r.map[k].leaving))
+                // Not restarted while running, or constant updates would starve the purge.
+                if (r.keys.some(k => r.map[k].leaving) && !leaveTimer.running)
                     leaveTimer.restart();
             }
 
@@ -404,10 +454,18 @@ ShellRoot {
                     opts.minW = root.iconMinW;
                 if (root.iconMinH !== undefined)
                     opts.minH = root.iconMinH;
+                const t0 = Date.now();
                 const on = root.iconsEnabled && fractalActive && status;
                 const fresh = on ? Lod.cards(status, blockers, opts) : [];
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
                 applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));
+                if (root.profile) {
+                    const ms = Date.now() - t0;
+                    root.prof.rebuilds++;
+                    root.prof.rebuildMs += ms;
+                    root.prof.rebuildWorst = Math.max(root.prof.rebuildWorst, ms);
+                    fresh.forEach(c => console.log("[fractal-prof " + (Date.now() % 100000) + "] card " + c.id + " scale=" + c.scale.toFixed(3) + " alpha=" + c.alpha.toFixed(2) + " mode=" + c.mode + (cardsIdle ? " idle" : "")));
+                }
             }
 
             function rebuild(): void {
@@ -488,6 +546,8 @@ ShellRoot {
             Component.onCompleted: updateBlockers()
 
             onStatusChanged: {
+                if (root.profile)
+                    root.prof.status++;
                 cardsIdle = false;
                 idleTimer.restart();
                 rebuild();
@@ -643,6 +703,10 @@ ShellRoot {
                         anchors.fill: parent
                         alpha: cardWin.geo.alpha !== undefined ? cardWin.geo.alpha : 1
                         shown: !cardWin.geo.leaving
+                        // Opacity eases only once the layout is still (or the card is leaving); while
+                        // you drag it tracks the tile directly, since easing toward a moving
+                        // target every few ms lags and stutters.
+                        smooth: scope.cardsIdle || !!cardWin.geo.leaving
                         tint: root.cardBlur ? 0.62 : 1
                         cornerRadius: root.cardRadius
                         iconSource: root.iconFor(cardWin.geo.label)
