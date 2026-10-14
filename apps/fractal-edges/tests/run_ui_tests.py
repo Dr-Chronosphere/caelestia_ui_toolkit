@@ -93,6 +93,43 @@ QTest.mouseMove(view, QPoint(320, 58))
 QTest.qWait(30)
 check(log() == "", f"hover alone emits nothing ({log()!r})")
 
+# ---- guide line: render it and check where the pixels are -----------------------------------
+gview = QQuickView()
+gview.engine().addImportPath(str(REPO / "qml"))
+gview.setSource(QUrl.fromLocalFile(str(HERE / "GuideHarness.qml")))
+gview.resize(1300, 900)
+gview.show()
+QTest.qWait(200)
+check(gview.status() == QQuickView.Status.Ready, f"GuideHarness loads ({[e.toString() for e in gview.errors()]})")
+groot = gview.rootObject()
+
+
+def gask(name, *args):
+    QMetaObject.invokeMethod(groot, name, Q_RETURN_ARG("QVariant"), *[Q_ARG("QVariant", a) for a in args])
+    QTest.qWait(120)
+
+
+def lit(x, y):
+    c = gview.grabWindow().pixelColor(x, y)
+    return abs(c.red() - 255) < 12 and abs(c.green() - 176) < 16 and abs(c.blue() - 202) < 16   # theme primary #ffb0ca
+
+
+# Row seam from the real engine fixture: centre x=700 in layout coords, monitor origin x=100.
+seam = {"axis": "x", "x": 692, "y": 40, "w": 16, "h": 800, "ratio": 0.5, "span": 1200}
+check(not lit(600, 400), "guide hidden with no seam")
+gask("show", seam, 0.5)
+check(lit(600, 400) and not lit(720, 400), "guide at the seam centre (x=700 - 100 origin)")
+gask("show", seam, 0.6)
+check(lit(720, 400) and not lit(600, 400), "guide follows the ratio (+0.1 of 1200 px = +120)")
+check(lit(720, 60) and lit(720, 830) and not lit(720, 20), "guide spans the seam's height only")
+gask("hide")
+check(not lit(720, 400), "guide hides again")
+vseam = {"axis": "y", "x": 700, "y": 432, "w": 600, "h": 16, "ratio": 0.5, "span": 800}
+gask("show", vseam, 0.75)
+# column seam at y=432..448 (centre 440), origin y=0, ratio 0.5 -> 0.75 moves it down 0.25*800 = 200 px
+check(lit(800, 640) and not lit(800, 440), "column seam: guide moves down 0.25 of 800 px")
+check(lit(900, 640) and not lit(300, 640) and not lit(1250, 640), "column seam: guide spans x=600..1200 only (700..1300 minus the 100 origin)")
+
 bad = [m for mode, m in msgs if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg)
        and "scheme watching unavailable" not in m]
 for m in bad:

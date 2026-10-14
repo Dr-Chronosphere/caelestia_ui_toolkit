@@ -64,6 +64,21 @@ python3 apps/fractal-edges/tests/run_ui_tests.py        # drag maths with synthe
 lua tests/test_tree.lua && TMPDIR=/tmp lua tests/test_glue.lua      # 35 + 12 tests pass
 ```
 
+## Animations and lag
+
+Hyprland animation `speed` is in units of 100 ms, so `hl.animation({ leaf = "windowsMove", speed = 6 })`
+means every tile move takes 600 ms. In `live` mode the handles send about 30 resizes a second, so
+tiles can never catch up with the pointer. Two ways out:
+
+- `FRACTAL_EDGE_MODE=release`: only the guide line follows the pointer; tiles resize once on
+  release (one animation). Works with any animation settings.
+- Shorten the window-move animation if you want `live` to feel direct, e.g. change `speed = 6` to
+  `speed = 2` on the `windowsMove` line of your animations file, then `hyprctl reload`. This
+  affects all window moves, not just handle drags.
+
+The Lua API's `no_anim` rule field exists for layer rules; I did not find it for window rules, so
+there is no per-window "don't animate" switch to use for the engine's parked windows.
+
 ## Troubleshooting
 
 - **Crash on exit** (`Aborted` inside `QWindow::unsetCursor`, seen when killing the overlay with

@@ -140,10 +140,8 @@ ShellRoot {
             // frozen during a drag (moving a window under the pointer would corrupt the drag
             // maths), so this separate click-through window shows where the edge is going.
             PanelWindow {
-                readonly property var s: scope.dragSeam
-
                 screen: scope.modelData
-                visible: s !== null
+                visible: scope.dragSeam !== null
                 anchors {
                     top: true
                     bottom: true
@@ -156,14 +154,12 @@ ShellRoot {
                 WlrLayershell.namespace: "caelestia-fractal-guide"
                 WlrLayershell.layer: WlrLayer.Top
 
-                Rectangle {
-                    visible: parent.s !== null
-                    radius: 2
-                    color: Theme.palette.m3primary
-                    x: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.x + parent.s.w / 2 + (scope.dragRatio - parent.s.ratio) * parent.s.span - scope.originX - 1.5 : parent.s.x - scope.originX
-                    y: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.y - scope.originY : parent.s.y + parent.s.h / 2 + (scope.dragRatio - parent.s.ratio) * parent.s.span - scope.originY - 1.5
-                    width: !parent.s ? 0 : parent.s.axis === "x" ? 3 : parent.s.w
-                    height: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.h : 3
+                Guide {
+                    anchors.fill: parent
+                    seam: scope.dragSeam
+                    ratio: scope.dragRatio
+                    originX: scope.originX
+                    originY: scope.originY
                 }
             }
 

@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -61,4 +61,17 @@ assert.equal(S.clampRatio(0.4), 0.4);
 const s0 = seams[0];
 assert.equal(S.edgeCommand(s0, 0.25), `edge ${s0.a} ${s0.b} 0.2500`);
 assert.equal(S.edgeCommand(s0, 5), `edge ${s0.a} ${s0.b} 0.9500`);
+// --- guide line ----------------------------------------------------------------------------
+// row seam at x=692..708 (centre 700), ratio 0.5, span 1200, monitor origin (100, 0)
+const g0 = plain(S.guideRect(s0, 0.5, 100, 0, 3));
+assert.deepEqual([g0.x, g0.y, g0.w, g0.h], [598.5, 40, 3, 800]);          // centre 700 - 100
+const g1 = plain(S.guideRect(s0, 0.6, 100, 0, 3));
+assert.equal(g1.x, 598.5 + 120, "ratio +0.1 of a 1200 span moves the line 120 px");
+const g2 = plain(S.guideRect(s0, 0.4, 100, 0, 3));
+assert.equal(g2.x, 598.5 - 120);
+// column seam moves vertically and spans horizontally
+const hs = plain(S.seams(st, 16).find(s => s.axis === "y"));
+const g3 = plain(S.guideRect(hs, hs.ratio + 0.25, 100, 40, 3));
+assert.deepEqual([g3.x, g3.w, g3.h], [hs.x - 100, hs.w, 3]);
+assert.equal(g3.y, hs.y + hs.h / 2 + 0.25 * hs.span - 40 - 1.5);
 console.log("seams tests passed");

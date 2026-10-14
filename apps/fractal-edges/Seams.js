@@ -94,3 +94,24 @@ function clampRatio(r) {
 function edgeCommand(seam, ratio) {
     return "edge " + seam.a + " " + seam.b + " " + clampRatio(ratio).toFixed(4);
 }
+
+// Where to draw the guide line while a seam is being dragged: the seam's centre line moved
+// to `ratio`, relative to the monitor at (originX, originY). Returns {x, y, w, h}.
+function guideRect(seam, ratio, originX, originY, thickness) {
+    thickness = thickness || 3;
+    var shift = (ratio - seam.ratio) * seam.span;
+    if (seam.axis === "x") {
+        return {
+            x: seam.x + seam.w / 2 + shift - originX - thickness / 2,
+            y: seam.y - originY,
+            w: thickness,
+            h: seam.h
+        };
+    }
+    return {
+        x: seam.x - originX,
+        y: seam.y + seam.h / 2 + shift - originY - thickness / 2,
+        w: seam.w,
+        h: thickness
+    };
+}
