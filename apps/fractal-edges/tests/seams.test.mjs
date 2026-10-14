@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,measureInsets,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,measureInsets,parseRounding,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -269,7 +269,7 @@ assert.deepEqual(pf([{ a: 300, b: 400, m: 0 }]), [[40, 260], [400, 440]]);
 assert.deepEqual(pf([{ a: 300, b: 400, m: 6 }]), [[40, 254], [406, 434]], "margin pulls the line back from the window on both sides");
 assert.deepEqual(pf([{ a: 350, b: 350, m: 0 }]), [[40, 800]], "collapsed cover: whole line");
 assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignores its margin (no stray gap)");
-assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })');
+assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.01 })');
 console.log("seams tests passed");
 
 const stI = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [
@@ -278,3 +278,5 @@ const stI = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", child
 const clI = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }]);
 assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clI, stI))), { inner: 5, edge: 10 });
 assert.equal(S.measureInsets("[]", stI), null);
+assert.equal(S.parseRounding('{"option":"decoration:rounding","int":12,"set":true}'), 12);
+assert.equal(S.parseRounding("nope"), null);

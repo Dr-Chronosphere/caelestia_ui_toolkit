@@ -155,6 +155,8 @@ ShellRoot {
     // switches that off for our surfaces only; runtime rules are dropped by a config reload, so
     // re-apply on `configreloaded`.
     function applyLayerRule(): void {
+        if (!roundingProc.running)
+            roundingProc.running = true;
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
         if (cardBlur)
             Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand()]);
@@ -162,6 +164,7 @@ ShellRoot {
 
     Component.onCompleted: {
         applyLayerRule();
+        roundingProc.running = true;
         refreshFloating();
     }
 
@@ -220,6 +223,27 @@ ShellRoot {
             const t = String(clientsOut.text || "");
             if (t !== root.clientsText)
                 root.clientsText = t;
+        }
+    }
+
+    // The window corner radius (decoration:rounding), so cards match the windows they cover.
+    // FRACTAL_CARD_RADIUS overrides; refreshed on config reload.
+    property real windowRounding: -1
+    readonly property real cardRadius: parseFloat(Quickshell.env("FRACTAL_CARD_RADIUS")) >= 0 ? parseFloat(Quickshell.env("FRACTAL_CARD_RADIUS")) : (windowRounding >= 0 ? windowRounding : -1)
+
+    Process {
+        id: roundingProc
+
+        command: ["hyprctl", "getoption", "decoration:rounding", "-j"]
+        stdout: StdioCollector {
+            id: roundingOut
+
+            waitForEnd: true
+        }
+        onExited: {
+            const v = Seams.parseRounding(String(roundingOut.text || ""));
+            if (v !== null)
+                root.windowRounding = v;
         }
     }
 
@@ -316,6 +340,16 @@ ShellRoot {
             // Cards follow their tiles live (including while a handle is dragged): they resize with the
             // tile, fade in as it shrinks below the threshold and out as it grows. A card hidden by a
             // floating window goes at once; one whose tile grew fades out first.
+            // True once the layout has been still for a moment.
+            property bool cardsIdle: false
+            onCardsIdleChanged: rebuildCards()
+            Timer {
+                id: idleTimer
+
+                interval: 450
+                onTriggered: scope.cardsIdle = true
+            }
+
             function rebuildCards(): void {
                 // Cards match where real windows sit inside their tiles (measured, so any gaps or
                 // border setting works); FRACTAL_CARD_PAD grows (+) or shrinks (-) them further.
@@ -339,7 +373,13 @@ ShellRoot {
                 if (root.iconMinH !== undefined)
                     opts.minH = root.iconMinH;
                 const on = root.iconsEnabled && fractalActive && status;
-                const fresh = on ? Lod.cards(status, blockers, opts) : [];
+                let fresh = on ? Lod.cards(status, blockers, opts) : [];
+                // Resizing stopped short of the threshold: a half-faded card is not wanted, so it
+                // fades the rest of the way out (a fully shown card stays).
+                if (cardsIdle)
+                    fresh = fresh.map(c => c.alpha >= 0.999 ? c : Object.assign({}, c, {
+                            "alpha": 0
+                        }));
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
                 applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));
             }
@@ -421,7 +461,11 @@ ShellRoot {
 
             Component.onCompleted: updateBlockers()
 
-            onStatusChanged: rebuild()
+            onStatusChanged: {
+                cardsIdle = false;
+                idleTimer.restart();
+                rebuild();
+            }
             onFractalActiveChanged: rebuild()
             onWsIdChanged: {
                 status = null;
@@ -574,6 +618,7 @@ ShellRoot {
                         alpha: cardWin.geo.alpha !== undefined ? cardWin.geo.alpha : 1
                         shown: !cardWin.geo.leaving
                         tint: root.cardBlur ? 0.62 : 1
+                        cornerRadius: root.cardRadius
                         iconSource: root.iconFor(cardWin.geo.label)
                         label: cardWin.geo.label
                         title: cardWin.geo.title

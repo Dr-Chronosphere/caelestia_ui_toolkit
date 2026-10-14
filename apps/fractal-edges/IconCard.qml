@@ -23,6 +23,8 @@ Item {
     // Tint opacity of the card's backing. The host blurs what is behind the card (a layer rule),
     // so the backing is translucent; use 1 for an opaque card when blur is off.
     property real tint: 0.62
+    // Corner radius; negative uses the theme's medium rounding.
+    property real cornerRadius: -1
 
     readonly property bool hasIcon: img.status === Image.Ready
     readonly property real iconEdge: Lod.iconSize(width, height)
@@ -46,7 +48,7 @@ Item {
 
     StyledRect {
         anchors.fill: parent
-        radius: Theme.rounding.medium
+        radius: root.cornerRadius >= 0 ? root.cornerRadius : Theme.rounding.medium
         color: Qt.alpha(Theme.palette.m3surfaceContainerHigh, root.tint)
         border.width: 1
         border.color: Qt.alpha(Theme.palette.m3outlineVariant, 0.7)

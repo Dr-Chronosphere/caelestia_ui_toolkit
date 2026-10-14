@@ -449,9 +449,10 @@ function piecesFromCovers(thin, axisOfSeam, covers) {
 
 // Blur what is behind the icon cards (like a transparent, blurred foot terminal): a Hyprland layer
 // rule on the card namespace. The cards' backing is translucent, so the blur shows through.
-// `ignore_alpha` leaves nearly-transparent pixels (a card mid-fade) unblurred.
+// `ignore_alpha` is near zero so the blur follows the card's fade smoothly instead of popping in
+// once the card is opaque enough.
 function cardBlurRuleCommand() {
-    return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })';
+    return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.01 })';
 }
 
 // How far real windows sit inside their layout tiles, measured from `hyprctl clients -j` against
@@ -494,4 +495,15 @@ function measureInsets(clientsText, status) {
     if (mi === null && me === null)
         return null;
     return { inner: mi === null ? me : mi, edge: me === null ? mi : me };
+}
+
+// decoration:rounding from `hyprctl getoption decoration:rounding -j`; null if unreadable.
+function parseRounding(text) {
+    try {
+        var o = JSON.parse(text);
+        var v = o.int !== undefined ? o.int : o.float;
+        return typeof v === "number" && v >= 0 ? v : null;
+    } catch (e) {
+        return null;
+    }
 }
