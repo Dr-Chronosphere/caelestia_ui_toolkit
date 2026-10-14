@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,orderRuleCommand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,cardBlurRuleCommand,measureInsets,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -272,5 +272,9 @@ assert.deepEqual(pf([{ a: 350, b: 350, m: 3 }]), [[40, 800]], "empty cover ignor
 assert.equal(S.cardBlurRuleCommand(), 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })');
 console.log("seams tests passed");
 
-assert.match(S.orderRuleCommand(false), /fractal-order-card.*order = -3.*fractal-order-edge.*order = -2.*fractal-order-guide.*order = -1/);
-assert.match(S.orderRuleCommand(true), /order = 3 .*order = 2 .*order = 1 /);
+const st = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", children: [
+  { kind: "window", address: "0xa", box: { x: 0, y: 0, w: 50, h: 100 } },
+  { kind: "window", address: "0xb", box: { x: 50, y: 0, w: 50, h: 100 } } ] } };
+const cl = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }]);
+assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(cl, st))), { inner: 5, edge: 10 });
+assert.equal(S.measureInsets("[]", st), null);

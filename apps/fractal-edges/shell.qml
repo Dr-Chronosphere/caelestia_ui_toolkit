@@ -42,11 +42,9 @@ ShellRoot {
     readonly property real iconFrac: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_FRAC")) || 0.25
     readonly property var iconMinW: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_W")) || undefined
     readonly property var iconMinH: parseFloat(Quickshell.env("FRACTAL_ICON_MIN_H")) || undefined
-    readonly property real cardOutset: Quickshell.env("FRACTAL_CARD_OUTSET") !== null && Quickshell.env("FRACTAL_CARD_OUTSET") !== "" ? parseFloat(Quickshell.env("FRACTAL_CARD_OUTSET")) : 12
-    // Stacking among our surfaces (Hyprland layer-rule `order`): cards under handles under the
-    // guide, all under Caelestia's own surfaces (0) so its popouts keep the pointer.
-    // FRACTAL_EDGE_ORDER=flip reverses the sign if your Hyprland treats lower as higher.
-    readonly property bool orderFlip: Quickshell.env("FRACTAL_EDGE_ORDER") === "flip"
+    readonly property real cardOutset: Quickshell.env("FRACTAL_CARD_PAD") !== null && Quickshell.env("FRACTAL_CARD_PAD") !== "" ? parseFloat(Quickshell.env("FRACTAL_CARD_PAD")) : 0
+    // Stacking: cards are Top, handles and the guide Overlay, so they always draw above the cards
+    // (surfaces in one layer stack by creation order, which a new card would break).
 
     // The cards' backing is translucent and Hyprland blurs what is behind them (a layer rule).
     // FRACTAL_CARD_BLUR=off gives opaque cards instead.
@@ -160,7 +158,6 @@ ShellRoot {
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
         if (cardBlur)
             Quickshell.execDetached(["hyprctl", "eval", Seams.cardBlurRuleCommand()]);
-        Quickshell.execDetached(["hyprctl", "eval", Seams.orderRuleCommand(orderFlip)]);
     }
 
     Component.onCompleted: {
@@ -320,10 +317,16 @@ ShellRoot {
             // tile, fade in as it shrinks below the threshold and out as it grows. A card hidden by a
             // floating window goes at once; one whose tile grew fades out first.
             function rebuildCards(): void {
+                // Cards match where real windows sit inside their tiles (measured, so any gaps or
+                // border setting works); FRACTAL_CARD_PAD grows (+) or shrinks (-) them further.
+                const ins = Seams.measureInsets(root.clientsText, status) || {
+                    "inner": 0,
+                    "edge": 0
+                };
                 const opts = {
                     "frac": root.iconFrac,
-                    "inset": 0,
-                    "outset": root.cardOutset,
+                    "inset": ins.inner - root.cardOutset,
+                    "outset": root.cardOutset - ins.edge,
                     "bounds": {
                         "x": originX,
                         "y": originY,
@@ -501,7 +504,7 @@ ShellRoot {
                 color: "transparent"
                 mask: Region {}
                 WlrLayershell.namespace: "caelestia-fractal-guide"
-                WlrLayershell.layer: WlrLayer.Top
+                WlrLayershell.layer: WlrLayer.Overlay
 
                 Guide {
                     anchors.fill: parent
@@ -628,7 +631,7 @@ ShellRoot {
                     exclusionMode: ExclusionMode.Ignore
                     color: "transparent"
                     WlrLayershell.namespace: "caelestia-fractal-edge"
-                    WlrLayershell.layer: WlrLayer.Top
+                    WlrLayershell.layer: WlrLayer.Overlay
                     mask: Region {
                         Region {
                             x: win.hit(0).x

@@ -37,8 +37,7 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_DEBUG` | off | `1`: log drags, handle windows appearing/vanishing and floating-window changes with a ms clock (run `qs -p apps/fractal-edges` in a terminal to see it) |
 | `FRACTAL_ICON_MIN_FRAC` | `0.25` | tiles narrower/shorter than this fraction of the work area get an icon card |
 | `FRACTAL_ICON_MIN_W` / `FRACTAL_ICON_MIN_H` | unset | pixel overrides for the fraction |
-| `FRACTAL_CARD_OUTSET` | `12` | px a card grows past tile sides touching the work-area edge (clamped to the monitor) |
-| `FRACTAL_EDGE_ORDER` | unset | `flip` negates the layer-rule `order` values if stacking comes out reversed |
+| `FRACTAL_CARD_PAD` | `0` | px to grow (+) or shrink (-) cards; their base size matches where windows really sit in their tiles (measured from `hyprctl clients`) |
 | `FRACTAL_ICONS` | on | `off` disables the icon cards |
 | `FRACTAL_CARD_BLUR` | on | `off`: opaque cards, no blur rule |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
@@ -193,8 +192,7 @@ tap signal are tested headlessly.
 
 ## Stacking
 
-Cards, handles and the guide are Top-layer surfaces; Hyprland stacks those by creation order unless
-a layer rule says otherwise. The overlay sets `order` rules (cards -3, handles -2, guide -1, so the
-rubber-band guide draws over cards) below Caelestia's own surfaces (0), so hovering a handle no
-longer closes a shell popout. Check with `hyprctl layers`; if the order is reversed, start with
-`FRACTAL_EDGE_ORDER=flip`.
+Surfaces in one layer stack by creation order, and `order` layer rules only affect space reservation,
+so cards are Top-layer while the handles and the guide are Overlay: they always draw above the cards
+(and the rubber-band overshoot is visible). Caveat: Overlay is above Caelestia's own Top-layer
+drawers, so a handle can still cover a popout where they overlap.

@@ -454,17 +454,44 @@ function cardBlurRuleCommand() {
     return 'hl.layer_rule({ name = "fractal-cards-blur", match = { namespace = "caelestia-fractal-card" }, blur = true, ignore_alpha = 0.2 })';
 }
 
-// Stacking among our layer surfaces: cards at the bottom, then handles, then the guide, all below
-// Caelestia's surfaces (default order 0), so its popouts/bar keep the pointer and the handles and
-// rubber-band guide draw over the cards. `flip` negates for compositors that sort the other way.
-function orderRuleCommand(flip) {
-    var k = flip ? -1 : 1;
-    function rule(name, ns, n) {
-        return 'hl.layer_rule({ name = "' + name + '", match = { namespace = "' + ns + '" }, order = ' + (n * k) + ' })';
+// How far real windows sit inside their layout tiles, measured from `hyprctl clients -j` against
+// the status boxes (matched by address): the median gap on sides shared with a neighbour (`inner`,
+// gaps_in + border) and on sides touching the work area's edge (`edge`, gaps_out + border).
+// Returns null when nothing matches.
+function measureInsets(clientsText, status) {
+    var clients;
+    try {
+        clients = JSON.parse(clientsText);
+    } catch (e) {
+        return null;
     }
-    return [
-        rule("fractal-order-card", "caelestia-fractal-card", -3),
-        rule("fractal-order-edge", "caelestia-fractal-edge", -2),
-        rule("fractal-order-guide", "caelestia-fractal-guide", -1)
-    ].join("; ");
+    if (!Array.isArray(clients) || !status || !status.tree || !status.area)
+        return null;
+    var by = {};
+    clients.forEach(function (c) {
+        if (c && c.address && c.at && c.size)
+            by[c.address] = c;
+    });
+    var a = status.area, eps = 2, inner = [], edge = [];
+    function walk(n) {
+        if (n.kind === "window" && n.box && by[n.address]) {
+            var c = by[n.address], b = n.box;
+            var d = [c.at[0] - b.x, c.at[1] - b.y, (b.x + b.w) - (c.at[0] + c.size[0]), (b.y + b.h) - (c.at[1] + c.size[1])];
+            var onEdge = [b.x <= a.x + eps, b.y <= a.y + eps, b.x + b.w >= a.x + a.w - eps, b.y + b.h >= a.y + a.h - eps];
+            for (var i = 0; i < 4; i++)
+                (onEdge[i] ? edge : inner).push(d[i]);
+        }
+        (n.children || []).forEach(walk);
+    }
+    walk(status.tree);
+    function med(l) {
+        if (!l.length)
+            return null;
+        l.sort(function (x, y) { return x - y; });
+        return l[Math.floor(l.length / 2)];
+    }
+    var mi = med(inner), me = med(edge);
+    if (mi === null && me === null)
+        return null;
+    return { inner: mi === null ? me : mi, edge: me === null ? mi : me };
 }
