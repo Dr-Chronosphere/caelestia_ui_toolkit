@@ -138,3 +138,4 @@ assert.equal(nx({ mode: "out" }, 1.0).alpha, 1, "shrinking back mid fade-out ret
   assert.equal(plain(L.cards(wide, [], { ...o, prev: had, idle: true })).length, 0, "idle above the threshold: gone");
 }
 console.log("hysteresis ok");
+assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100, idle: true }))[0].settle, true); assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100 }))[0].settle, false);

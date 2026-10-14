@@ -132,7 +132,7 @@ function cards(status, blockers, opts) {
             if (intersects(r, blockers[i]))
                 return;
         }
-        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alpha, mode: mode });
+        out.push({ id: w.id, address: w.address, label: w.label, title: w.title, x: r.x, y: r.y, w: r.w, h: r.h, scale: sc, alpha: alpha, mode: mode, settle: !!opts.idle });
     });
     out.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
     return out;

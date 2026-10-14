@@ -406,7 +406,7 @@ check(str(cask("logText")) == "big|small", f"tapping a card emits activated for 
 
 # size-dependent fade with the shell's curve: opacity follows `alpha` smoothly, `shown=false` fades out
 cask("setAlpha", "big", 0.4)
-QTest.qWait(20)
+QTest.qWait(80)
 mid = _json.loads(str(cask("opacities")))[0]
 check(0.4 < mid < 1.0, f"opacity eases toward the new alpha rather than jumping ({mid})")
 QTest.qWait(500)

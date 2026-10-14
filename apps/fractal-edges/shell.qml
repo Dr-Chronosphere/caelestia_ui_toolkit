@@ -774,12 +774,14 @@ ShellRoot {
                         y: Math.round(geo.y - scope.originY)
                         width: Math.max(1, Math.round(geo.w))
                         height: Math.max(1, Math.round(geo.h))
-                        alpha: geo.alpha !== undefined ? geo.alpha : 1
                         shown: !geo.leaving
-                        // Opacity eases only once the layout is still (or the card is leaving); while
-                        // you drag it tracks the tile directly, since easing toward a moving
-                        // target every few ms lags and stutters.
-                        smooth: scope.cardsIdle || !!geo.leaving
+                        // Opacity eases only for a settled card (after mouse-up, or no drag at all) or one
+                        // leaving; while you drag it tracks the tile directly. The flag travels in the
+                        // same card record as the alpha and is declared BEFORE it, so by the time the
+                        // new alpha is written the Behavior already knows whether to ease (toggling it
+                        // from a separate property raced, and the fade snapped).
+                        smooth: !!geo.settle || !!geo.leaving
+                        alpha: geo.alpha !== undefined ? geo.alpha : 1
                         tint: root.translucent ? 0.55 : 1
                         backdrop: root.wallpaperUrl
                         backdropX: x

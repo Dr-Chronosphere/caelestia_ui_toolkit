@@ -53,17 +53,38 @@ Item {
 
     // Fade with the shell's own effects curve. A new card starts at 0 and fades in.
     property bool ready: false
-    Component.onCompleted: ready = true
 
-    opacity: (ready && shown) ? alpha : 0
+    // The opacity we are heading for. Applied a tick after any of alpha/shown/smooth change
+    // (Qt.callLater), so that `smooth` is up to date when the new alpha arrives: with a Behavior
+    // toggled by `smooth`, bindings re-evaluated in the wrong order made the fade snap.
+    readonly property real target: (ready && shown) ? alpha : 0
+    onTargetChanged: Qt.callLater(root.applyTarget)
+    Component.onCompleted: {
+        ready = true;
+        Qt.callLater(root.applyTarget);
+    }
 
-    Behavior on opacity {
-        enabled: root.smooth
-
-        Anim {
-            type: Anim.DefaultEffects
-            duration: root.fadeMs
+    function applyTarget() {
+        if (!root.smooth) {
+            fade.stop();
+            root.opacity = root.target;
+        } else if (fade.to !== root.target || !fade.running) {
+            fade.stop();
+            fade.from = root.opacity;
+            fade.to = root.target;
+            fade.start();
         }
+    }
+
+    opacity: 0
+
+    Anim {
+        id: fade
+
+        target: root
+        property: "opacity"
+        type: Anim.DefaultEffects
+        duration: root.fadeMs
     }
 
     readonly property real _radius: root.cornerRadius >= 0 ? root.cornerRadius : Theme.rounding.medium
