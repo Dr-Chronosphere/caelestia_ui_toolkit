@@ -67,22 +67,26 @@ Item {
     function applyTarget() {
         if (!root.smooth) {
             fade.stop();
-            root.opacity = root.target;
+            root.level = root.target;
         } else if (fade.to !== root.target || !fade.running) {
             fade.stop();
-            fade.from = root.opacity;
+            fade.from = root.level;
             fade.to = root.target;
             fade.start();
         }
     }
 
-    opacity: 0
+    // How far the card has faded in (0..1). The backdrop reaches full strength at 1/backdropRamp
+    // of it, ahead of the tint and icon, so while a card is still fading in the wallpaper (not
+    // the tiny live window underneath) is what shows through.
+    property real level: 0
+    property real backdropRamp: 3
 
     Anim {
         id: fade
 
         target: root
-        property: "opacity"
+        property: "level"
         type: Anim.DefaultEffects
         duration: root.fadeMs
     }
@@ -91,7 +95,8 @@ Item {
 
     Item {
         anchors.fill: parent
-        visible: root.backdrop.toString() !== "" && root.backdropW > 0
+        opacity: Math.min(1, root.level * root.backdropRamp)
+        visible: root.backdrop.toString() !== "" && root.backdropW > 0 && opacity > 0
         layer.enabled: root._gpu && visible
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -147,6 +152,7 @@ Item {
 
     StyledRect {
         anchors.fill: parent
+        opacity: root.level
         radius: root.cornerRadius >= 0 ? root.cornerRadius : Theme.rounding.medium
         color: Qt.alpha(Theme.palette.m3surfaceContainerHigh, root.tint)
         border.width: 1

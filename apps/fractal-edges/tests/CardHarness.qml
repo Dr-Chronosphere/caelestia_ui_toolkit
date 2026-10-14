@@ -16,7 +16,7 @@ Rectangle {
         root.log = [];
     }
     function opacities() {
-        return JSON.stringify([big.opacity, small.opacity]);
+        return JSON.stringify([big.level, small.level]);
     }
     function setAlpha(which, a) {
         (which === "big" ? big : small).alpha = a;
