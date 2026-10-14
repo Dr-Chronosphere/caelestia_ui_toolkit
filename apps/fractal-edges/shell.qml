@@ -208,6 +208,7 @@ ShellRoot {
             property string blockersKey: ""
             property bool dragging: false
             property var dragSeam: null        // the seam being dragged, for the guide line
+            property bool settling: false
             property real dragRatio: 0
             property var pendingSeam: null
             property real pendingRatio: 0
@@ -283,6 +284,16 @@ ShellRoot {
                 onLoadFailed: scope.status = null
             }
 
+            Timer {
+                id: settleTimer
+
+                interval: 240
+                onTriggered: {
+                    scope.dragSeam = null;
+                    scope.settling = false;
+                }
+            }
+
             // Leading + trailing throttle for live resizing.
             Timer {
                 id: throttle
@@ -322,6 +333,7 @@ ShellRoot {
                     originX: scope.originX
                     originY: scope.originY
                     blockers: scope.blockers
+                    settling: scope.settling
                 }
             }
 
@@ -354,12 +366,14 @@ ShellRoot {
                         seam: win.modelData
                         onDragStarted: {
                             root.dragBegan();
+                            settleTimer.stop();
+                            scope.settling = false;
                             scope.dragging = true;
                             scope.dragSeam = win.modelData;
                             scope.dragRatio = win.modelData.ratio;
                         }
-                        onDragMoved: ratio => {
-                            scope.dragRatio = ratio;
+                        onDragMoved: (ratio, shown) => {
+                            scope.dragRatio = shown;
                             if (!root.live)
                                 return;
                             if (throttle.running) {
@@ -374,7 +388,10 @@ ShellRoot {
                             throttle.stop();
                             scope.pendingSeam = null;
                             scope.send(win.modelData, ratio);
-                            scope.dragSeam = null;
+                            // The line springs back from any overshoot to the limit, then goes.
+                            scope.settling = true;
+                            scope.dragRatio = ratio;
+                            settleTimer.restart();
                             scope.dragging = false;
                             root.dragEnded();
                             scope.rebuild();

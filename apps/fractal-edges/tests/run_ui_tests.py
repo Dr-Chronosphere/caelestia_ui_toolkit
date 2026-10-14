@@ -86,6 +86,24 @@ ask("clearLog")
 drag(0, dy=50, from_xy=(300, 58))
 check(log().split("|")[-1] == "end 0.500", f"column seam: +50px of 500 from 0.4 -> 0.500 ({log().split('|')[-1]})")
 
+# Rubber band: a seam whose engine limits are 0.1..0.9 (span 1000 px). Pulling 900 px right from 0.5
+# asks for 1.4; tiles get the clamped 0.9, the guide gets a bounded overshoot beyond it.
+limited = {"key": "a|b", "a": "a", "b": "b", "axis": "x", "ratio": 0.5, "span": 1000, "lo": 0.1, "hi": 0.9, "x": 0, "y": 0, "w": 16, "h": 400}
+ask("setSeam", limited)
+QTest.qWait(100)
+ask("clearLog")
+drag(900, steps=3)
+moves = [p.split() for p in log().split("|") if p.startswith("move")]
+ratios = [float(m[1]) for m in moves]
+shown = [float(m[2]) for m in moves]
+check(ratios[-1] == 0.9, f"tiles stop at the engine limit ({ratios[-1]})")
+check(0.9 < shown[-1] <= 0.9 + 0.04 + 1e-6, f"guide overshoots a little, bounded by give ({shown[-1]})")
+check(log().split("|")[-1] == "end 0.900", f"release reports the clamped ratio ({log().split('|')[-1]})")
+ask("clearLog")
+drag(100, steps=2)                                  # 0.5 -> 0.6, inside the limits
+m = [p.split() for p in log().split("|") if p.startswith("move")][-1]
+check(abs(float(m[1]) - 0.6) < 1e-9 and abs(float(m[2]) - 0.6) < 1e-9, f"inside the limits the guide is exactly the tile ratio ({m})")
+
 # Moves do not fire without a press
 ask("clearLog")
 QTest.mouseMove(view, QPoint(300, 58))
@@ -109,6 +127,11 @@ def gask(name, *args):
     QTest.qWait(120)
 
 
+def gask_ret(name, *args):
+    r = QMetaObject.invokeMethod(groot, name, Q_RETURN_ARG("QVariant"), *[Q_ARG("QVariant", a) for a in args])
+    return r.toVariant() if hasattr(r, "toVariant") else r
+
+
 def lit(x, y):
     c = gview.grabWindow().pixelColor(x, y)
     return abs(c.red() - 255) < 12 and abs(c.green() - 176) < 16 and abs(c.blue() - 202) < 16   # theme primary #ffb0ca
@@ -129,6 +152,22 @@ gask("show", vseam, 0.75)
 # column seam at y=432..448 (centre 440), origin y=0, ratio 0.5 -> 0.75 moves it down 0.25*800 = 200 px
 check(lit(800, 640) and not lit(800, 440), "column seam: guide moves down 0.25 of 800 px")
 check(lit(900, 640) and not lit(300, 640) and not lit(1250, 640), "column seam: guide spans x=600..1200 only (700..1300 minus the 100 origin)")
+
+# Stretch past the limit and spring back (seam limits 0.1..0.9, span 1200, origin x=100)
+limseam = dict(seam, lo=0.1, hi=0.9)
+gask("show", limseam, 0.5)
+t_normal = float(gask_ret("drawnThickness"))
+gask("show", limseam, 0.94)                          # 48 px past the limit
+check(float(gask_ret("drawnThickness")) > t_normal + 2, "line thickens while stretched past the limit")
+check(lit(1126, 400) and lit(1129, 400), "stretched line is drawn at the overshoot position (x=700+0.44*1200-100=1128)")
+gask("setSettling", True)
+QMetaObject.invokeMethod(groot, "show", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", limseam), Q_ARG("QVariant", 0.9))
+QTest.qWait(40)
+check(not lit(1080, 400), "after release the line is still on its way back (not yet at the limit)")
+QTest.qWait(500)
+check(lit(1080, 400) and not lit(1128, 400), "and settles at the limit (x=1080)")
+gask("setSettling", False)
+gask("hide")
 
 # A floating window over part of the seam: the guide is cut there (layer surfaces would
 # otherwise paint over the window).

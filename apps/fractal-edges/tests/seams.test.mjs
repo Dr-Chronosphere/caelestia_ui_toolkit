@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,limits,rubberBand,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -60,7 +60,8 @@ assert.equal(S.clampRatio(2), 0.95);
 assert.equal(S.clampRatio(0.4), 0.4);
 const s0 = seams[0];
 assert.equal(S.edgeCommand(s0, 0.25), `edge ${s0.a} ${s0.b} 0.2500`);
-assert.equal(S.edgeCommand(s0, 5), `edge ${s0.a} ${s0.b} 0.9500`);
+assert.equal(S.edgeCommand(s0, 5), `edge ${s0.a} ${s0.b} 0.9000`, "clamped to this seam's engine limit, not a global one");
+assert.equal(S.edgeCommand(s0, -5), `edge ${s0.a} ${s0.b} 0.1000`);
 // --- guide line ----------------------------------------------------------------------------
 // row seam at x=692..708 (centre 700), ratio 0.5, span 1200, monitor origin (100, 0)
 const g0 = plain(S.guideRect(s0, 0.5, 100, 0, 3));
@@ -74,6 +75,39 @@ const hs = plain(S.seams(st, 16).find(s => s.axis === "y"));
 const g3 = plain(S.guideRect(hs, hs.ratio + 0.25, 100, 40, 3));
 assert.deepEqual([g3.x, g3.w, g3.h], [hs.x - 100, hs.w, 3]);
 assert.equal(g3.y, hs.y + hs.h / 2 + 0.25 * hs.span - 40 - 1.5);
+// --- limits (mirror the engine's weight range 0.2..5) ---------------------------------------------
+const lim = (a, b) => plain(S.limits(a, b));
+assert.deepEqual(lim(1, 1), { lo: 0.1, hi: 0.9 }, "equal weights: each tile keeps at least 0.2/2");
+assert.equal(lim(2, 2).lo, 0.05, "sum 4: 0.2/4");
+assert.equal(lim(2, 2).hi, 0.95);
+const big = lim(4, 4);                                  // sum 8: max weight 5 caps each tile at 5/8
+assert.equal(big.hi, 5 / 8);
+assert.equal(big.lo, 3 / 8, "the other tile cannot go below 8-5 = 3");
+assert.deepEqual(lim(0, 0), { lo: 0.05, hi: 0.95 }, "degenerate weights fall back to safe defaults");
+// every seam from the real fixture carries limits, consistent with weights of 1 and 1
+assert.ok(seams.every(sm => Math.abs(sm.lo - 0.1) < 1e-9 && Math.abs(sm.hi - 0.9) < 1e-9));
+assert.equal(S.clampRatio(0.95, s0), 0.9);
+assert.equal(S.clampRatio(0.5, s0), 0.5);
+
+// --- rubber band ---------------------------------------------------------------------------------
+const rb = (raw, give) => S.rubberBand(raw, s0, give);       // s0: lo .1, hi .9, span 1200
+assert.equal(rb(0.5), 0.5, "identity inside the limits");
+assert.equal(rb(0.9), 0.9);
+assert.equal(rb(0.1), 0.1);
+const over1 = rb(0.9 + 20 / 1200, 40) - 0.9;                 // pulled 20 px past: gives less than 20 px
+assert.ok(over1 > 0 && over1 * 1200 < 20, `gives less than it is pulled (${over1 * 1200}px)`);
+const over2 = rb(0.9 + 500 / 1200, 40) - 0.9;                // pulled 500 px past: never beyond `give`
+assert.ok(over2 * 1200 < 40 && over2 * 1200 > 39, `capped near give (${over2 * 1200}px)`);
+let prev = 0;                                                  // monotonic: pulling further never moves it back
+for (let d = 0; d <= 400; d += 10) {
+  const o = (rb(0.9 + d / 1200, 40) - 0.9) * 1200;
+  assert.ok(o >= prev - 1e-9);
+  prev = o;
+}
+const low = rb(0.1 - 20 / 1200, 40);                          // symmetric on the low side
+assert.ok(low < 0.1 && (0.1 - low) * 1200 < 20);
+assert.equal((0.1 - rb(0.1 - 20 / 1200, 40)).toFixed(9), (rb(0.9 + 20 / 1200, 40) - 0.9).toFixed(9), "symmetric");
+
 // --- animation suspension helpers ------------------------------------------------------------
 assert.equal(S.parseAnimEnabled('{"option":"animations:enabled","int":1,"set":true}'), true);
 assert.equal(S.parseAnimEnabled('{"option":"animations:enabled","int":0,"set":true}'), false);

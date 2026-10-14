@@ -34,6 +34,11 @@ bin/caelestia-fractal-edges restart`):
 | `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
+Each seam knows how far the engine will let it move (the tiles' weights are kept within 0.2-5,
+mirrored in `Seams.js`). Dragging past that limit does not just stop: the guide line stretches
+a little (it gets harder to pull, up to about 40 px beyond the limit) and thickens, then springs back
+smoothly when you let go, while the tiles stay at the limit.
+
 Floating windows (and scratchpad/special-workspace and pinned windows) always sit above the tiled
 layout, but layer-shell surfaces render above *every* window, so handles and the drag guide are cut
 wherever a floating window covers a seam (pieces shorter than 24 px are dropped). The overlay reads

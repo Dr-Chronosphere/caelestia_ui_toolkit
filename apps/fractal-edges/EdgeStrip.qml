@@ -22,13 +22,24 @@ Item {
     readonly property bool dragging: area.pressed
     readonly property bool horizontal: seam.axis === "x"   // row seam: drag left/right
 
+    // How far (px) the guide may be pulled past the limit before it stops giving.
+    property real give: 40
+
     signal dragStarted
-    // Emitted on every pointer move while dragging, with the clamped new ratio for `seam.a`.
-    signal dragMoved(real ratio)
+    // Emitted on every pointer move while dragging. `ratio` is what the tiles can actually do
+    // (clamped to the engine's limits); `shown` is for the guide line and stretches past the
+    // limit like a rubber band.
+    signal dragMoved(real ratio, real shown)
     signal dragFinished(real ratio)
 
+    function rawFor(pos: real, start: real): real {
+        return seam.ratio + (pos - start) / seam.span;
+    }
     function ratioFor(pos: real, start: real): real {
-        return Seams.clampRatio(seam.ratio + (pos - start) / seam.span);
+        return Seams.clampRatio(rawFor(pos, start), seam);
+    }
+    function shownFor(pos: real, start: real): real {
+        return Seams.rubberBand(rawFor(pos, start), seam, give);
     }
 
     // The visible line: thin, centred in the (wider) grab area.
@@ -71,7 +82,7 @@ Item {
             if (!pressed)
                 return;
             lastRatio = root.ratioFor(pos(mouse), startPos);
-            root.dragMoved(lastRatio);
+            root.dragMoved(lastRatio, root.shownFor(pos(mouse), startPos));
         }
         onReleased: mouse => {
             lastRatio = root.ratioFor(pos(mouse), startPos);

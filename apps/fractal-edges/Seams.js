@@ -20,6 +20,23 @@ function parse(text) {
     return s;
 }
 
+// Mirrors MIN_WEIGHT / MAX_WEIGHT in fractal_tree.lua: the engine keeps each tile's weight in this
+// range, which bounds how far an edge can move.
+var MIN_WEIGHT = 0.2;
+var MAX_WEIGHT = 5.0;
+
+// The range of ratios (a's share of the pair's space) the engine will accept for two weights.
+function limits(wa, wb) {
+    var sum = wa + wb;
+    if (!(sum > 0))
+        return { lo: 0.05, hi: 0.95 };
+    var lo = Math.max(MIN_WEIGHT, sum - MAX_WEIGHT);
+    var hi = Math.min(MAX_WEIGHT, sum - MIN_WEIGHT);
+    if (lo > hi)
+        return { lo: wa / sum, hi: wa / sum };
+    return { lo: lo / sum, hi: hi / sum };
+}
+
 function isSplit(node) {
     return node.kind === "row" || node.kind === "column";
 }
@@ -61,6 +78,9 @@ function seams(status, grab) {
                     ratio: aSize / span,
                     span: span
                 };
+                var lim = limits(a.weight, b.weight);
+                seam.lo = lim.lo;
+                seam.hi = lim.hi;
                 if (row) {
                     var bx = b.box.x;
                     seam.x = bx - grab / 2;
@@ -85,14 +105,30 @@ function seams(status, grab) {
     return out;
 }
 
-// Clamp a dragged ratio so neither tile collapses completely.
-function clampRatio(r) {
-    return Math.min(0.95, Math.max(0.05, r));
+// Clamp a dragged ratio to what the engine accepts for this seam (or a safe default).
+function clampRatio(r, seam) {
+    var lo = seam && seam.lo !== undefined ? seam.lo : 0.05;
+    var hi = seam && seam.hi !== undefined ? seam.hi : 0.95;
+    return Math.min(hi, Math.max(lo, r));
+}
+
+// Rubber band: past the limits the displayed ratio gives way ever more slowly and never moves
+// further than `give` px beyond the limit. Inside the limits it is the identity.
+function rubberBand(raw, seam, give) {
+    var lo = seam.lo !== undefined ? seam.lo : 0.05;
+    var hi = seam.hi !== undefined ? seam.hi : 0.95;
+    give = give === undefined ? 40 : give;
+    if (raw >= lo && raw <= hi)
+        return raw;
+    var edge = raw > hi ? hi : lo;
+    var d = Math.abs(raw - edge) * seam.span;              // px dragged past the limit
+    var shown = give * (1 - Math.exp(-d / give));          // eases toward `give`
+    return edge + (raw > hi ? 1 : -1) * shown / seam.span;
 }
 
 // The layout message that sets the edge to `ratio`.
 function edgeCommand(seam, ratio) {
-    return "edge " + seam.a + " " + seam.b + " " + clampRatio(ratio).toFixed(4);
+    return "edge " + seam.a + " " + seam.b + " " + clampRatio(ratio, seam).toFixed(4);
 }
 
 // Where to draw the guide line while a seam is being dragged: the seam's centre line moved

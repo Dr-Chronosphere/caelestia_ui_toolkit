@@ -19,10 +19,25 @@ Item {
     property real originX: 0
     property real originY: 0
     property real thickness: 3
+    // True while the line settles back to the limit after release (animates `ratio`).
+    property bool settling: false
     // Floating-window rects in layout coordinates (Seams.floatingRects).
     property var blockers: []
 
-    readonly property var rects: seam ? Seams.guideRects(seam, ratio, originX, originY, thickness, blockers) : []
+    // px past the seam's limits (0 inside them): the line thickens as it is pulled further.
+    readonly property real over: seam ? Math.max(0, (seam.lo !== undefined ? seam.lo : 0.05) - ratio, ratio - (seam.hi !== undefined ? seam.hi : 0.95)) * seam.span : 0
+    readonly property real drawnThickness: thickness + Math.min(3, over / 12)
+
+    readonly property var rects: seam ? Seams.guideRects(seam, ratio, originX, originY, drawnThickness, blockers) : []
+
+    Behavior on ratio {
+        enabled: root.settling
+
+        NumberAnimation {
+            duration: 220
+            easing.type: Easing.OutCubic
+        }
+    }
 
     Repeater {
         model: root.rects

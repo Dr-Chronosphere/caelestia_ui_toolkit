@@ -40,7 +40,7 @@ Item {
         height: root.seam.h
         seam: root.seam
         onDragStarted: root.log = [...root.log, "start"]
-        onDragMoved: r => root.log = [...root.log, "move " + r.toFixed(3)]
+        onDragMoved: (r, shown) => root.log = [...root.log, "move " + r.toFixed(3) + " " + shown.toFixed(4)]
         onDragFinished: r => root.log = [...root.log, "end " + r.toFixed(3)]
     }
 }

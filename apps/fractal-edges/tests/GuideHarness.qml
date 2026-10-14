@@ -13,6 +13,12 @@ Rectangle {
     function hide() {
         guide.seam = null;
     }
+    function setSettling(on) {
+        guide.settling = on;
+    }
+    function drawnThickness() {
+        return guide.drawnThickness;
+    }
     function setBlockers(list) {
         guide.blockers = list;
     }
