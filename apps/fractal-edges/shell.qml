@@ -404,11 +404,30 @@ ShellRoot {
             // Cards follow their tiles live (including while a handle is dragged): they resize with the
             // tile, fade in as it shrinks below the threshold and out as it grows. A card hidden by a
             // floating window goes at once; one whose tile grew fades out first.
-            // True once the layout has been still for a moment.
-            property bool cardsIdle: false
-            // Where windows sit inside their tiles. Measured only while the layout is still (the
-            // client list is polled on events, so mid-drag it lags the live tile boxes) and kept
-            // between drags, so one app's size limits or animation can't skew another's card.
+            // Cards track their tile directly while a handle is held down (no easing, and pausing
+            // does nothing); letting go settles them: each finishes fading to fully in or fully out,
+            // gradually. Layout changes with no drag (a window opening, say) settle at once.
+            property bool cardsIdle: true
+            onCardsIdleChanged: rebuildCards()
+            // A beat after release, so the layout's final size has arrived before cards pick a side.
+            onDraggingChanged: {
+                if (dragging) {
+                    holdTimer.stop();
+                    cardsIdle = false;
+                } else {
+                    holdTimer.restart();
+                }
+            }
+            Timer {
+                id: holdTimer
+
+                interval: 140
+                onTriggered: scope.cardsIdle = true
+            }
+            // Where windows sit inside their tiles. Measured only once the layout has stopped
+            // moving (the client list is polled on events, so mid-drag or mid-animation it does not
+            // match the live tile boxes) and kept between drags, so one app's size limits or
+            // animation can't skew another's card.
             property var insets: ({
                     "inner": 0,
                     "edge": 0
@@ -422,25 +441,26 @@ ShellRoot {
                     rebuildCards();
                 }
             }
-            Connections {
-                target: root
-
-                function onClientsTextChanged(): void {
-                    scope.remeasure();
-                }
-            }
-            onCardsIdleChanged: {
-                if (cardsIdle) {
-                    root.refreshFloating();
-                    remeasure();
-                }
-                rebuildCards();
-            }
             Timer {
-                id: idleTimer
+                id: measureTimer
 
-                interval: 450
-                onTriggered: scope.cardsIdle = true
+                property bool fetched: false
+
+                interval: 600
+                onTriggered: {
+                    if (!scope.cardsIdle)
+                        return;
+                    if (!fetched) {
+                        fetched = true;
+                        root.refreshFloating();
+                        interval = 250;
+                        restart();
+                    } else {
+                        fetched = false;
+                        interval = 600;
+                        scope.remeasure();
+                    }
+                }
             }
 
             function rebuildCards(): void {
@@ -558,10 +578,9 @@ ShellRoot {
             onStatusChanged: {
                 if (root.profile)
                     root.prof.status++;
-                cardsIdle = false;
-                // Settle quickly once the handle is let go; otherwise wait out any slow layout update.
-                idleTimer.interval = dragging ? 450 : 160;
-                idleTimer.restart();
+                measureTimer.fetched = false;
+                measureTimer.interval = 600;
+                measureTimer.restart();
                 rebuild();
             }
             onFractalActiveChanged: rebuild()
