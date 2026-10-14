@@ -1,8 +1,53 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..e9b250b 100644
+index f4f204f..6f8a47a 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
-@@ -177,7 +177,10 @@ M.retag = retag
+@@ -64,12 +64,43 @@ local function load_state(ws)
+   return tree
+ end
+ 
+-local function save(ws, tree)
++local function save_state(ws, tree)
+   write_file(state_path(ws), T.serialize(tree))
++end
++
++local function save_status(ws, tree)
+   write_file(string.format("%s/ws-%s.txt", RUNTIME_DIR, ws_key(ws)), T.render(tree) .. "\n")
+   write_file(string.format("%s/ws-%s.json", RUNTIME_DIR, ws_key(ws)), T.to_json(tree, { workspace = tonumber(ws_key(ws)) or ws_key(ws) }) .. "\n")
+ end
+ 
++local function save(ws, tree)
++  save_state(ws, tree)
++  save_status(ws, tree)
++end
++
++-- Dragging an edge sends dozens of `edge` commands a second. Widgets need the status file
++-- at once; the persisted state can wait until the drag pauses, so write it at most every
++-- 400 ms instead of on every command.
++local state_dirty, state_timer = {}, false
++local function save_soon(ws, tree)
++  save_status(ws, tree)
++  state_dirty[ws] = true
++  if state_timer then return end
++  state_timer = true
++  local ok = pcall(hl.timer, function()
++    state_timer = false
++    for k in pairs(state_dirty) do
++      state_dirty[k] = nil
++      local t = M.trees[k]
++      if t then pcall(save_state, k, t) end
++    end
++  end, { timeout = 400, type = "oneshot" })
++  if not ok then
++    state_timer = false
++    save_state(ws, tree)
++  end
++end
++
+ -- ------------------------------------------------------------ hypr glue --
+ 
+ local function tree_for(ws)
+@@ -177,7 +208,10 @@ M.retag = retag
  
  local function apply(tree, ctx)
    local area = ctx.area
@@ -14,7 +59,7 @@ index f4f204f..e9b250b 100644
    local pw, ph = math.max(200, math.floor(area.w / 3)), math.max(150, math.floor(area.h / 3))
    -- Remember each window's last visible box: a parked window keeps that size,
    -- so its app does not reflow and the map's thumbnail still shows it as it was.
-@@ -265,6 +268,7 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+@@ -265,6 +299,7 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
    move left|right|up|down    move the focused window, i3-style
    tab next|prev              cycle a tabs container
    grow | shrink              change the focused window's share
@@ -22,7 +67,7 @@ index f4f204f..e9b250b 100644
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -353,6 +357,10 @@ local function handle(tree, msg)
+@@ -353,6 +388,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -33,6 +78,15 @@ index f4f204f..e9b250b 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
+@@ -407,7 +446,7 @@ function M.layout_msg(ctx, msg)
+     local before = tree.focused
+     reply = handle(tree, msg)
+     apply(tree, ctx)
+-    save(ws, tree)
++    if tostring(msg):match("^%s*edge%s") then save_soon(ws, tree) else save(ws, tree) end
+     write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
+     if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
+     if M.notify and reply and not reply:find("\n") then notify(reply) end
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
 index 7dae2d2..5095e93 100644
 --- a/lua/fractal_tree.lua
@@ -116,10 +170,10 @@ index 7dae2d2..5095e93 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..8cc8aed 100644
+index e2ae2ae..f6b7a27 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,28 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,56 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -144,6 +198,34 @@ index e2ae2ae..8cc8aed 100644
 +  eq(reply(), "can't move that edge")
 +  provider.layout_msg(ctx_for({ A, B, C }), "edge x")
 +  eq(reply():match("^usage"), "usage")
++end)
++
++test("edge commands write the status file at once but persist state only after a pause", function()
++  for _, fn in ipairs(calls.timers) do pcall(fn) end   -- let earlier tests' timers fire, as the runtime would
++  calls.timers = {}
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  local tree = _G.__fractal.impl.trees["9"]
++  local a, col = tree.root.children[1], tree.root.children[2]
++  local function slurp(path) local f = io.open(path) local t = f and f:read("a") f:close() return t end
++  local state_path = root .. "/state/fractal-wm/ws-9.lua"
++  local before = slurp(state_path)
++  local timers_before = 0
++  for _, r in ipairs({ 0.3, 0.35, 0.4 }) do
++    provider.layout_msg(ctx_for({ A, B, C }), string.format("edge %s %s %s", a.id, col.id, r))
++  end
++  eq(slurp(state_path), before, "state file untouched while dragging")
++  eq(slurp(root .. "/run/fractal-wm/ws-9.json"):find('"w":480.0', 1, true) ~= nil, true, "status file current (a is 40% of 1200)")
++  for _, fn in ipairs(calls.timers) do pcall(fn) end    -- the pause: timers fire
++  local after1 = slurp(state_path)
++  eq(after1 ~= before, true, "state persisted after the pause")
++  calls.timers = {}
++  provider.layout_msg(ctx_for({ A, B, C }), string.format("edge %s %s 0.5", a.id, col.id))
++  eq(slurp(state_path), after1, "second drag: state again untouched until the pause")
++  for _, fn in ipairs(calls.timers) do pcall(fn) end
++  eq(slurp(state_path) ~= after1, true, "second drag persisted too (a new timer was scheduled)")
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))

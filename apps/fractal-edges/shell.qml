@@ -12,6 +12,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import CaelestiaUI
 import "Seams.js" as Seams
 
 ShellRoot {
@@ -21,6 +22,11 @@ ShellRoot {
     readonly property string layoutName: "lua:fractal"
     // Handle thickness in px; bigger is easier to hit with a finger.
     readonly property int grab: parseInt(Quickshell.env("FRACTAL_EDGE_GRAB")) || 16
+    // "live": tiles follow the drag (throttled); "release": a guide line follows the pointer
+    // and tiles snap there when you let go (no lag at all, nothing resizes mid-drag).
+    readonly property bool live: Quickshell.env("FRACTAL_EDGE_MODE") !== "release"
+    // Minimum ms between live resize commands.
+    readonly property int interval: parseInt(Quickshell.env("FRACTAL_EDGE_INTERVAL")) || 33
 
     Variants {
         model: Quickshell.screens
@@ -41,6 +47,8 @@ ShellRoot {
             property var status: null
             property var shownSeams: []
             property bool dragging: false
+            property var dragSeam: null        // the seam being dragged, for the guide line
+            property real dragRatio: 0
             property var pendingSeam: null
             property real pendingRatio: 0
 
@@ -80,13 +88,44 @@ ShellRoot {
             Timer {
                 id: throttle
 
-                interval: 33
+                interval: root.interval
                 onTriggered: {
                     if (scope.pendingSeam) {
                         scope.send(scope.pendingSeam, scope.pendingRatio);
                         scope.pendingSeam = null;
                         restart();
                     }
+                }
+            }
+
+            // The line that follows the pointer/finger while dragging. The handle windows are
+            // frozen during a drag (moving a window under the pointer would corrupt the drag
+            // maths), so this separate click-through window shows where the edge is going.
+            PanelWindow {
+                readonly property var s: scope.dragSeam
+
+                screen: scope.modelData
+                visible: s !== null
+                anchors {
+                    top: true
+                    bottom: true
+                    left: true
+                    right: true
+                }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                mask: Region {}
+                WlrLayershell.namespace: "caelestia-fractal-guide"
+                WlrLayershell.layer: WlrLayer.Top
+
+                Rectangle {
+                    visible: parent.s !== null
+                    radius: 2
+                    color: Theme.palette.m3primary
+                    x: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.x + parent.s.w / 2 + (scope.dragRatio - parent.s.ratio) * parent.s.span - scope.originX - 1.5 : parent.s.x - scope.originX
+                    y: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.y - scope.originY : parent.s.y + parent.s.h / 2 + (scope.dragRatio - parent.s.ratio) * parent.s.span - scope.originY - 1.5
+                    width: !parent.s ? 0 : parent.s.axis === "x" ? 3 : parent.s.w
+                    height: !parent.s ? 0 : parent.s.axis === "x" ? parent.s.h : 3
                 }
             }
 
@@ -117,8 +156,15 @@ ShellRoot {
                     EdgeStrip {
                         anchors.fill: parent
                         seam: win.modelData
-                        onDragStarted: scope.dragging = true
+                        onDragStarted: {
+                            scope.dragging = true;
+                            scope.dragSeam = win.modelData;
+                            scope.dragRatio = win.modelData.ratio;
+                        }
                         onDragMoved: ratio => {
+                            scope.dragRatio = ratio;
+                            if (!root.live)
+                                return;
                             if (throttle.running) {
                                 scope.pendingSeam = win.modelData;
                                 scope.pendingRatio = ratio;
@@ -131,6 +177,7 @@ ShellRoot {
                             throttle.stop();
                             scope.pendingSeam = null;
                             scope.send(win.modelData, ratio);
+                            scope.dragSeam = null;
                             scope.dragging = false;
                             scope.rebuild();
                         }

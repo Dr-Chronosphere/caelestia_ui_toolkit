@@ -20,6 +20,19 @@ layout is driven by node weights anyway. So the handles are our own.
    boxes. Dragging sends `edge` commands (throttled to about 30 per second, then a final one on
    release). Wayland delivers touch to the surface like pointer input, so it works with touch too.
 
+While you drag, a click-through guide line follows the pointer or finger, so you always see where
+the edge is going even if the windows trail behind (the handle windows themselves stay frozen
+during a drag; moving a window under the pointer would corrupt the drag maths).
+
+Settings (environment variables of the overlay process, e.g. `env FRACTAL_EDGE_MODE=release
+bin/caelestia-fractal-edges restart`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FRACTAL_EDGE_MODE` | `live` | `live`: tiles follow the drag. `release`: only the guide line moves; tiles snap on release (no lag, no mid-drag reflow) |
+| `FRACTAL_EDGE_INTERVAL` | `33` | minimum ms between live resize commands |
+| `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
+
 Handles appear only on workspaces using `lua:fractal`, and only between tiles that are on screen
 (not tabs, not hidden tiles). Handle thickness defaults to 16 px (`FRACTAL_EDGE_GRAB=28` for fingers).
 
@@ -49,9 +62,8 @@ lua tests/test_tree.lua && TMPDIR=/tmp lua tests/test_glue.lua      # 35 + 12 te
 
 - The overlay itself: monitor origin (`HyprlandMonitor.x/y`), detecting the layout via
   `lastIpcObject.tiledLayout`, `Hyprland.dispatch` of the layout message, per-seam layer windows.
-- Whether Hyprland's animations make live resizing feel laggy (windows animate to each new
-  size). If so, the cure is probably a shorter animation for resizes or commit-on-release only.
+- Lag in `live` mode. Likely causes: Hyprland animating every window move, and clients
+  re-rendering at each size. `release` mode avoids both. The engine no longer rewrites its state
+  file on every `edge` command (status file at once, state at most every 400 ms).
 - Touch: relies on Qt turning touch into mouse events on a `MouseArea`.
-- Disk: every `edge` command rewrites the workspace's state and status files (about 30 times a
-  second while dragging). Fine on tmpfs for the status file; the state file lives on disk.
 - Handles sit over 8 px of each neighbouring window's edge, and a fullscreen window hides them.

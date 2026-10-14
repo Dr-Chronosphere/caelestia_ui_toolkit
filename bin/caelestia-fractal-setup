@@ -105,8 +105,18 @@ install_all() {
         ok "patch already applied"
     else
         git -C "$FRACTAL_DIR" cat-file -e "$PIN^{commit}" 2>/dev/null || git -C "$FRACTAL_DIR" fetch -q origin
+        # An older version of our patch may be applied. Only the files the patch touches
+        # may differ from the commit; revert those and re-apply. Anything else is yours.
+        local dirty other
+        dirty=$(git -C "$FRACTAL_DIR" diff --name-only HEAD)
+        other=$(printf '%s\n' "$dirty" | grep -vxE 'lua/fractal.lua|lua/fractal_tree.lua|tests/test_glue.lua|tests/test_tree.lua' || true)
+        [ -z "$other" ] || die "$FRACTAL_DIR has local changes besides the edge patch ($(echo "$other" | tr '\n' ' ')); commit or stash them"
+        if [ -n "$dirty" ]; then
+            git -C "$FRACTAL_DIR" checkout -q -- lua tests
+            ok "reverted an older version of the edge patch"
+        fi
         git -C "$FRACTAL_DIR" checkout -q "$PIN" 2>/dev/null \
-            || die "cannot check out $PIN in $FRACTAL_DIR (local changes? commit or stash them)"
+            || die "cannot check out $PIN in $FRACTAL_DIR"
         git -C "$FRACTAL_DIR" apply "$patch" || die "the patch does not apply to $PIN"
         ok "checked out $PIN and applied the patch"
     fi

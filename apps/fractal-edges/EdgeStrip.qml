@@ -16,6 +16,9 @@ Item {
 
     // Idle visibility of the handle line. 0 = invisible until hovered/pressed.
     property real idleOpacity: 0
+    // The host draws the line that follows the pointer while dragging (this item is frozen
+    // in place during a drag), so hide our own line while pressed.
+    property bool externalGuide: true
     readonly property bool dragging: area.pressed
     readonly property bool horizontal: seam.axis === "x"   // row seam: drag left/right
 
@@ -35,7 +38,7 @@ Item {
         height: root.horizontal ? parent.height : 3
         radius: 2
         color: Theme.palette.m3primary
-        opacity: area.pressed ? 0.9 : area.containsMouse ? 0.6 : root.idleOpacity
+        opacity: area.pressed ? (root.externalGuide ? 0 : 0.9) : area.containsMouse ? 0.6 : root.idleOpacity
 
         Behavior on opacity {
             Anim {

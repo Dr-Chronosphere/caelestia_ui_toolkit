@@ -11,6 +11,20 @@ printf -- '-- my config\nhl.config({ general = { gaps_in = 5 } })\n' > "$HOME/.c
 fail() { echo "FAIL $*"; exit 1; }
 "$repo/bin/caelestia-fractal-setup" install --yes >/dev/null || fail "install"
 "$repo/bin/caelestia-fractal-setup" install --yes >/dev/null || fail "second install (idempotent)"
+# upgrading: an older applied patch (simulated by editing a patched file) is reverted and re-applied
+sed -i 's/"edge moved"/"edge moved (older patch)"/' "$HOME/fractal-wm/lua/fractal.lua"
+"$repo/bin/caelestia-fractal-setup" install --yes >/dev/null || fail "install over an older patch"
+grep -q "older patch" "$HOME/fractal-wm/lua/fractal.lua" && fail "old patch left behind"
+grep -q "save_soon" "$HOME/fractal-wm/lua/fractal.lua" || fail "new patch not applied"
+# unrelated local changes are never touched: ignored while the patch is current,
+# and a refusal (not a clobber) when the patch would need re-applying
+echo "mine" >> "$HOME/fractal-wm/README.md"
+"$repo/bin/caelestia-fractal-setup" install --yes >/dev/null || fail "install with an unrelated change and a current patch"
+sed -i 's/"edge moved"/"edge moved (stale)"/' "$HOME/fractal-wm/lua/fractal.lua"
+"$repo/bin/caelestia-fractal-setup" install --yes >/dev/null 2>&1 && fail "install should refuse: stale patch plus unrelated local changes"
+grep -q mine "$HOME/fractal-wm/README.md" || fail "unrelated change was lost"
+git -C "$HOME/fractal-wm" checkout -q -- README.md
+"$repo/bin/caelestia-fractal-setup" install --yes >/dev/null || fail "install after the unrelated change is gone"
 [ "$(grep -c fractal_keys "$HOME/.config/hypr/hyprland.lua")" = 1 ] || fail "require line added once"
 "$repo/bin/caelestia-fractal-setup" check | grep -q MISSING && fail "check reports missing items after install"
 grep -q "caelestia-fractal-map" "$HOME/.config/hypr/fractal_keys.lua" || fail "map key rewritten"
