@@ -11,9 +11,27 @@ repo=$(dirname "$here")
 dir="$repo/apps/fractal-edges"
 export QML_IMPORT_PATH="$repo/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 
+running() { pgrep -f -- "$dir" >/dev/null 2>&1; }
+
+# Ask the overlay to tear its windows down and exit; fall back to killing it. Then wait
+# for it to be gone, so a following `start` (which uses --no-duplicate) cannot race it.
+stop() {
+    if qs -p "$dir" ipc call fractaledges isRunning >/dev/null 2>&1; then
+        qs -p "$dir" ipc call fractaledges quit >/dev/null 2>&1 || qs -p "$dir" kill >/dev/null 2>&1 || true
+    else
+        qs -p "$dir" kill >/dev/null 2>&1 || true
+    fi
+    i=0
+    while running; do
+        i=$((i + 1))
+        [ "$i" -gt 30 ] && { echo "caelestia-fractal-edges: still running after 3 s" >&2; return 1; }
+        sleep 0.1
+    done
+}
+
 case "${1:-start}" in
     start) exec qs -p "$dir" --no-duplicate --daemonize ;;
-    stop) exec qs -p "$dir" kill ;;
-    restart) qs -p "$dir" kill 2>/dev/null || true; exec qs -p "$dir" --no-duplicate --daemonize ;;
+    stop) stop ;;
+    restart) stop; exec qs -p "$dir" --no-duplicate --daemonize ;;
     *) echo "usage: caelestia-fractal-edges [start|stop|restart]" >&2; exit 2 ;;
 esac

@@ -46,7 +46,13 @@ hyprctl reload                                    # the layout hot-swaps
 /path/to/caelestia_ui_toolkit/bin/caelestia-fractal-edges start
 ```
 
-Start it at login from your Hyprland autostart. `stop` and `restart` also work. Applying the
+Start it at login from your Hyprland autostart. `stop` and `restart` shut the overlay down
+gracefully (an IPC `quit` that destroys the handle windows first, then exits), fall back to
+`qs kill`, and wait for the old instance to be gone before a restart starts a new one.
+
+Quickshell hot-reloads when its files change, so run `bin/caelestia-fractal-edges stop` before
+`git pull`. Otherwise it may try to reload mid-update and log a harmless
+`EdgeStrip is not a type` error (the old version keeps running). Applying the
 patch by hand to your own clone also works: `git apply integration/fractal-wm-edge-resize.patch`.
 
 ## Tests
@@ -57,6 +63,14 @@ python3 apps/fractal-edges/tests/run_ui_tests.py        # drag maths with synthe
 # engine patch: apply to a fresh upstream clone, then
 lua tests/test_tree.lua && TMPDIR=/tmp lua tests/test_glue.lua      # 35 + 12 tests pass
 ```
+
+## Troubleshooting
+
+- **Crash on exit** (`Aborted` inside `QWindow::unsetCursor`, seen when killing the overlay with
+  `qs kill`): handle windows own a resize cursor and were destroyed during teardown, after Qt
+  could no longer unset it. `stop`/`restart` now avoid this. If you still get a crash report,
+  please keep it; the stack trace and the last lines of the log are what I need.
+- `integration/test-launchers.sh` tests the stop/restart logic against a fake `qs`.
 
 ## Not verified (needs a live Hyprland and Quickshell)
 

@@ -28,6 +28,30 @@ ShellRoot {
     // Minimum ms between live resize commands.
     readonly property int interval: parseInt(Quickshell.env("FRACTAL_EDGE_INTERVAL")) || 33
 
+    // Set by the `quit` IPC call: tear the handle windows down first, then exit. Killing the
+    // process outright (`qs kill`) destroys windows whose items own a mouse cursor after Qt can
+    // no longer unset it, which aborts inside QWindow::unsetCursor (seen in a crash report).
+    property bool shuttingDown: false
+
+    IpcHandler {
+        target: "fractaledges"
+
+        function quit(): void {
+            root.shuttingDown = true;
+            quitTimer.start();
+        }
+        function isRunning(): string {
+            return "true";
+        }
+    }
+
+    Timer {
+        id: quitTimer
+
+        interval: 200
+        onTriggered: Qt.quit()
+    }
+
     Variants {
         model: Quickshell.screens
 
@@ -55,6 +79,12 @@ ShellRoot {
             // Rebuild the handles, unless a drag is in progress: handles stay where they
             // were grabbed, so the drag maths is not disturbed by the layout reflowing.
             function rebuild(): void {
+                if (root.shuttingDown) {
+                    dragging = false;
+                    dragSeam = null;
+                    shownSeams = [];
+                    return;
+                }
                 if (dragging)
                     return;
                 shownSeams = (fractalActive && status) ? Seams.seams(status, root.grab) : [];
@@ -62,6 +92,14 @@ ShellRoot {
 
             function send(seam, ratio): void {
                 Hyprland.dispatch("hl.dsp.layout(\"" + Seams.edgeCommand(seam, ratio) + "\")");
+            }
+
+            Connections {
+                target: root
+
+                function onShuttingDownChanged(): void {
+                    scope.rebuild();
+                }
             }
 
             onStatusChanged: rebuild()
