@@ -31,6 +31,7 @@ bin/caelestia-fractal-edges restart`):
 | --- | --- | --- |
 | `FRACTAL_EDGE_MODE` | `live` | `live`: tiles follow the drag. `release`: only the guide line moves; tiles snap on release (no lag, no mid-drag reflow) |
 | `FRACTAL_EDGE_INTERVAL` | `33` | minimum ms between live resize commands |
+| `FRACTAL_EDGE_ANIM` | `suspend` | by default Hyprland's animations are switched off during a drag and restored 150 ms after the last resize (only if they were on); `keep` leaves them alone |
 | `FRACTAL_EDGE_GRAB` | `16` | handle thickness in px (try `28` for fingers) |
 
 Handles appear only on workspaces using `lua:fractal`, and only between tiles that are on screen
@@ -65,6 +66,11 @@ lua tests/test_tree.lua && TMPDIR=/tmp lua tests/test_glue.lua      # 35 + 12 te
 ```
 
 ## Animations and lag
+
+While a handle is dragged, the overlay runs `hyprctl eval 'hl.config({ animations = { enabled = false } })'`
+and restores it afterwards (it reads `animations:enabled` first, so it never enables animations you
+had off). This keeps tiles locked to the pointer and the guide line on the seam instead of over
+window contents. If the overlay dies mid-drag, `hyprctl reload` restores your settings.
 
 Hyprland animation `speed` is in units of 100 ms, so `hl.animation({ leaf = "windowsMove", speed = 6 })`
 means every tile move takes 600 ms. In `live` mode the handles send about 30 resizes a second, so

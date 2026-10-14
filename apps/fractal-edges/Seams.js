@@ -115,3 +115,30 @@ function guideRect(seam, ratio, originX, originY, thickness) {
         h: thickness
     };
 }
+
+// --- Animation suspension ------------------------------------------------------------------
+// Tiles ease toward each new size, so during a live drag they trail the pointer and the guide
+// line ends up drawn over window contents. The host switches animations off for the duration of
+// a drag and back on afterwards (only if they were on to begin with).
+
+// `hyprctl getoption animations:enabled -j` -> true / false, or null if it cannot be read.
+function parseAnimEnabled(text) {
+    var o;
+    try {
+        o = JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+    if (!o || typeof o !== "object")
+        return null;
+    if (typeof o.int === "number")
+        return o.int !== 0;
+    if (typeof o.bool === "boolean")
+        return o.bool;
+    return null;
+}
+
+// The Lua expression for `hyprctl eval` that sets the global animation switch.
+function animCommand(on) {
+    return "hl.config({ animations = { enabled = " + (on ? "true" : "false") + " } })";
+}

@@ -28,6 +28,66 @@ ShellRoot {
     // Minimum ms between live resize commands.
     readonly property int interval: parseInt(Quickshell.env("FRACTAL_EDGE_INTERVAL")) || 33
 
+    // Switch Hyprland's animations off while a handle is dragged (so tiles follow the pointer
+    // instead of easing toward it) and back on afterwards. `FRACTAL_EDGE_ANIM=keep` opts out.
+    // If the overlay ever dies mid-drag, `hyprctl reload` restores your animation settings.
+    readonly property bool suspendAnimations: Quickshell.env("FRACTAL_EDGE_ANIM") !== "keep"
+    property int activeDrags: 0
+    property bool animSuspended: false
+
+    function setAnimations(on: bool): void {
+        Quickshell.execDetached(["hyprctl", "eval", Seams.animCommand(on)]);
+    }
+
+    function dragBegan(): void {
+        activeDrags++;
+        restoreTimer.stop();
+        if (!suspendAnimations || animSuspended || activeDrags !== 1)
+            return;
+        animProbe.running = true;
+    }
+
+    function dragEnded(): void {
+        activeDrags = Math.max(0, activeDrags - 1);
+        if (activeDrags === 0 && animSuspended)
+            restoreTimer.restart();
+    }
+
+    function restoreAnimations(): void {
+        if (animSuspended) {
+            setAnimations(true);
+            animSuspended = false;
+        }
+    }
+
+    // Read the current setting first: never turn animations on for someone who had them off.
+    Process {
+        id: animProbe
+
+        command: ["hyprctl", "getoption", "animations:enabled", "-j"]
+        stdout: StdioCollector {
+            id: probeOut
+
+            waitForEnd: true
+        }
+        onExited: {
+            if (Seams.parseAnimEnabled(String(probeOut.text || "")) === true && root.activeDrags > 0) {
+                root.setAnimations(false);
+                root.animSuspended = true;
+            }
+        }
+    }
+
+    // Wait a moment after the last resize command so that resize snaps instead of easing.
+    Timer {
+        id: restoreTimer
+
+        interval: 150
+        onTriggered: root.restoreAnimations()
+    }
+
+    Component.onDestruction: restoreAnimations()
+
     // Set by the `quit` IPC call: tear the handle windows down first, then exit. Killing the
     // process outright (`qs kill`) destroys windows whose items own a mouse cursor after Qt can
     // no longer unset it, which aborts inside QWindow::unsetCursor (seen in a crash report).
@@ -37,6 +97,7 @@ ShellRoot {
         target: "fractaledges"
 
         function quit(): void {
+            root.restoreAnimations();
             root.shuttingDown = true;
             quitTimer.start();
         }
@@ -191,6 +252,7 @@ ShellRoot {
                         anchors.fill: parent
                         seam: win.modelData
                         onDragStarted: {
+                            root.dragBegan();
                             scope.dragging = true;
                             scope.dragSeam = win.modelData;
                             scope.dragRatio = win.modelData.ratio;
@@ -213,6 +275,7 @@ ShellRoot {
                             scope.send(win.modelData, ratio);
                             scope.dragSeam = null;
                             scope.dragging = false;
+                            root.dragEnded();
                             scope.rebuild();
                         }
                     }
