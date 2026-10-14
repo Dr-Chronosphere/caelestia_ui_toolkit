@@ -687,7 +687,10 @@ ShellRoot {
             // live card resizing stutter. Only the card rectangles take input.
             PanelWindow {
                 screen: scope.modelData
-                visible: scope.cardKeys.length > 0
+                // Kept mapped whenever cards are possible, not only while one exists: opening the
+                // surface, decoding the wallpaper and compiling the blur shaders on the first card
+                // cost 70-95 ms stalls in the profile log. An idle surface is empty and takes no input.
+                visible: root.iconsEnabled && scope.fractalActive && !root.shuttingDown
                 anchors {
                     top: true
                     bottom: true
@@ -711,6 +714,21 @@ ShellRoot {
                     CardRegion { rect: scope.cardRect(9) }
                     CardRegion { rect: scope.cardRect(10) }
                     CardRegion { rect: scope.cardRect(11) }
+                }
+
+                // Warm-up: one faint, tiny card keeps the wallpaper decoded and the blur/mask
+                // pipelines compiled, so the first real card appears without a hitch.
+                IconCard {
+                    width: 24
+                    height: 24
+                    alpha: 0.01
+                    smooth: false
+                    tint: 0
+                    backdrop: root.wallpaperUrl
+                    backdropW: scope.modelData.width
+                    backdropH: scope.modelData.height
+                    blurAmount: root.blurAmount
+                    cornerRadius: root.cardRadius
                 }
 
                 Repeater {
