@@ -29,6 +29,36 @@ Rectangle {
     // Emitted when the user opens a (non-folder) file.
     signal openRequested(string path)
 
+    // Emitted when anything a tab should remember changes (so a tab can move between windows).
+    signal viewStateChanged
+
+    onPathChanged: viewStateChanged()
+    onBackStackChanged: viewStateChanged()
+    onForwardStackChanged: viewStateChanged()
+    onViewModeChanged: viewStateChanged()
+    onShowHiddenChanged: viewStateChanged()
+
+    function snapshot(): var {
+        return {
+            "path": path,
+            "back": backStack,
+            "fwd": forwardStack,
+            "viewMode": viewMode,
+            "showHidden": showHidden
+        };
+    }
+
+    function restore(s: var): void {
+        if (!s)
+            return;
+        if (s.path)
+            path = s.path;
+        backStack = s.back ?? [];
+        forwardStack = s.fwd ?? [];
+        viewMode = s.viewMode ?? viewMode;
+        showHidden = s.showHidden ?? showHidden;
+    }
+
     // Navigate to `target`. History is recorded unless `fromHistory` (back/forward).
     // Note: QML coerces a missing `bool` argument to false, so the flag must default to false.
     function go(target: string, fromHistory: bool): void {

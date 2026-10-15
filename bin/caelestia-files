@@ -1,8 +1,25 @@
 #!/usr/bin/env sh
-# Open the Caelestia file manager (standalone window). Safe to call repeatedly: if the file manager
-# is already running, this exits instead of opening a second window.
+# Open the Caelestia file manager. If it is already running, open another window in it (windows can
+# be dragged onto each other to merge into tabs); otherwise start it.
+#
+#   caelestia-files [path]          new window (at path, default $HOME)
+#   caelestia-files --tab [path]    new tab in the newest window
+#   caelestia-files drop            merge the window being carried now (bind to mouse release)
 set -e
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 repo=$(dirname "$here")
+dir="$repo/apps/files"
 export QML_IMPORT_PATH="$repo/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
-exec qs -p "$repo/apps/files" --no-duplicate "$@"
+
+running() { qs -p "$dir" ipc call files isRunning >/dev/null 2>&1; }
+
+case "${1:-}" in
+    drop) exec qs -p "$dir" ipc call files drop ;;
+    --tab)
+        shift
+        if running; then exec qs -p "$dir" ipc call files newTab "${1:-}"; fi ;;
+    *)
+        if running; then exec qs -p "$dir" ipc call files newWindow "${1:-}"; fi ;;
+esac
+[ -n "${1:-}" ] && [ "$1" != "--tab" ] && export FILES_START="$1"
+exec qs -p "$dir" --no-duplicate
