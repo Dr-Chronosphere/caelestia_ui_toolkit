@@ -70,6 +70,7 @@ ShellRoot {
     // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (straight away, as the
     // event fires when it maps, and again after a beat), in case the window rule above is not honoured.
     property var untiled: ({})
+    property var created: ({})
 
     // Always-on trace of the tiling step, so a missing/odd result can be explained:
     // ~/.local/state/caelestia-files/tile.log
@@ -111,9 +112,12 @@ ShellRoot {
             + 'export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"; '
             + 'if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr" 2>/dev/null | head -1); fi; '
             + 'command -v jq >/dev/null 2>&1 || { echo "$(date +%T) scan: jq not found" >> "$log"; exit 0; }; '
+            // Only windows that appear AFTER the scan starts are handled: one you are already dragging
+            // (a dragged tiled window floats) must not be pulled back to tiled by a later scan.
+            + 'existing=$(hyprctl clients -j 2>/dev/null | jq -r \'.[] | select(.title | startswith("Files #")) | .address\' 2>/dev/null); '
             + 'seen=0; clean=0; i=0; '
             + 'while [ $i -lt 20 ] && [ $clean -lt 3 ]; do '
-            + 'out=$(hyprctl clients -j 2>>"$log" | jq -r \'[.[] | select(.title | startswith("Files #"))] | "\\(length) " + ([.[] | select(.floating) | .address] | join(" "))\' 2>>"$log"); '
+            + 'out=$(hyprctl clients -j 2>>"$log" | jq -r --arg ex "$existing" \'($ex | split("\\n")) as $old | [.[] | select((.title | startswith("Files #")) and ([.address] | inside($old) | not))] | "\\(length) " + ([.[] | select(.floating) | .address] | join(" "))\' 2>>"$log"); '
             + 'set -- $out; n=${1:-0}; [ $# -gt 0 ] && shift; '
             + 'if [ "$n" -gt 0 ]; then seen=1; fi; '
             + 'if [ $# -gt 0 ]; then '
@@ -138,7 +142,11 @@ ShellRoot {
                 const title = parts.slice(event.name === "openwindow" ? 3 : 1).join(",");
                 if (root.debugTile)
                     console.log("[files] " + event.name + " " + parts[0] + " title=" + title);
-                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0) {
+                const idm = /^Files #(\d+)/.exec(title);
+                // Only a window this app created in the last few seconds: a title event on an old
+                // window (say you navigated while dragging it) must never re-tile it.
+                const fresh = idm && root.created[idm[1]] !== undefined && Date.now() - root.created[idm[1]] < 6000;
+                if (/^[0-9a-f]+$/.test(parts[0]) && fresh) {
                     if (!root.untiled[parts[0]]) {
                         root.untiled[parts[0]] = true;
                         root.note("saw " + event.name + " for window 0x" + parts[0] + " (" + title + "), un-floating");
@@ -208,7 +216,11 @@ ShellRoot {
             readonly property var rec: root.model.windows[root.model.winIndex(modelData)]
 
             color: "transparent"
-            Component.onCompleted: if (root.tile) root.untileAll()
+            Component.onCompleted: {
+                root.created[modelData] = Date.now();
+                if (root.tile)
+                    root.untileAll();
+            }
             title: "Files #" + modelData + " — " + tabs.activeLabel
             implicitWidth: 960
             implicitHeight: 680

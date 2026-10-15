@@ -207,4 +207,93 @@ Rectangle {
             }
         }
     }
+
+    // --- miniature of a tab being torn out ---------------------------------------------------
+    // Dragging a tab off the strip turns it into a small copy of its window that follows the pointer,
+    // so you can see what you are carrying. It grows out of the chip's size.
+
+    Item {
+        id: ghost
+
+        readonly property real miniW: Math.min(320, root.width * 0.4)
+        readonly property real miniH: miniW * body.height / Math.max(1, body.width)
+        // 0..1: the chip becoming the window.
+        property real grow: bar.tearing ? 1 : 0
+
+        Behavior on grow {
+            Anim {
+                type: Anim.DefaultSpatial
+            }
+        }
+
+        z: 100
+        visible: grow > 0.001
+        width: bar.chipWidth + (miniW - bar.chipWidth) * grow
+        height: 34 + (miniH - 34) * grow
+        x: bar.dragX - width / 2
+        y: bar.dragY - 17 * (1 - grow) - 14 * grow
+        opacity: Math.min(1, grow * 2)
+
+        Item {
+            anchors.fill: parent
+
+            // A picture of the tab's contents on GPU renderers.
+            ShaderEffectSource {
+                id: tabShot
+
+                anchors.fill: parent
+                sourceItem: root.viewFor(bar.dragTabId)
+                live: ghost.visible
+                visible: GraphicsInfo.api !== GraphicsInfo.Software && sourceItem !== null
+                layer.enabled: visible
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: ghostMask
+                }
+            }
+
+            // Without that: the tab's name and icon on a card.
+            Rectangle {
+                anchors.fill: parent
+                visible: !tabShot.visible
+                radius: Theme.rounding.medium
+                color: Theme.palette.m3surfaceContainerHigh
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacing.small
+
+                    MaterialIcon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "folder"
+                        iconSize: Theme.iconSize.extraLarge
+                        color: Theme.palette.m3primary
+                    }
+                    StyledText {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.activeLabel
+                        color: Theme.palette.m3onSurface
+                    }
+                }
+            }
+
+            Rectangle {
+                id: ghostMask
+
+                anchors.fill: parent
+                radius: Theme.rounding.medium
+                visible: false
+                layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
+            }
+
+            // Window-ish frame.
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.rounding.medium
+                color: "transparent"
+                border.width: 2
+                border.color: Theme.palette.m3primary
+            }
+        }
+    }
 }

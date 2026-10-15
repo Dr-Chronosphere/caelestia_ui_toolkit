@@ -47,6 +47,12 @@ Item {
     property int dragFrom: -1
     property int dragTo: -1
     property bool dragTear: false
+    // For the host's miniature of the tab being torn out: which tab, and where the pointer is
+    // (in this item's coordinates).
+    readonly property bool tearing: dragFrom >= 0 && dragTear && tabs.length > 1
+    property string dragTabId: ""
+    property real dragX: 0
+    property real dragY: 0
 
     Repeater {
         id: chips
@@ -73,7 +79,13 @@ Item {
             border.width: tearing ? 2 : 0
             border.color: Theme.palette.m3primary
             scale: dragging ? 1.04 : 1
-            opacity: tearing ? 0.85 : 1
+            opacity: tearing ? 0 : 1
+
+            Behavior on opacity {
+                Anim {
+                    type: Anim.FastEffects
+                }
+            }
 
             // Others glide into place; the dragged chip follows the pointer exactly.
             Behavior on x {
@@ -108,6 +120,9 @@ Item {
                     if (active) {
                         root.dragFrom = chip.index;
                         root.dragTo = chip.index;
+                        root.dragTabId = chip.modelData.id;
+                        // Grabbing a tab shows it (the miniature is a picture of it).
+                        root.activated(chip.modelData.id);
                     } else {
                         // (translation is already reset here, so the state is tracked while dragging)
                         const from = root.dragFrom, to = root.dragTo;
@@ -123,6 +138,9 @@ Item {
                 }
                 onTranslationChanged: {
                     if (active) {
+                        const p = chip.mapToItem(root, centroid.position.x, centroid.position.y);
+                        root.dragX = p.x;
+                        root.dragY = p.y;
                         root.dragTear = Math.abs(translation.y) > root.tearDistance;
                         root.dragTo = Math.max(0, Math.min(root.tabs.length - 1, Math.round((chip.index * root.step + translation.x) / root.step)));
                     }
