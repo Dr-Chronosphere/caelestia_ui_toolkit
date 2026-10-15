@@ -77,6 +77,14 @@ ShellRoot {
         return Quickshell.iconPath(name, "application-x-executable");
     }
 
+    // Focus a window through the layout. A card is a layer surface over a small window, so hovering it
+    // does not focus that window; without this, zoom-in (and the zoom gestures) would zoom into
+    // whatever was focused before instead of the app under the pointer.
+    function focusWindow(address: string): void {
+        if (/^[A-Za-z0-9_x-]+$/.test(address || ""))
+            Hyprland.dispatch("hl.dsp.layout(\"focus " + address + "\")");
+    }
+
     // Zoom the viewport onto one window (the layout's `zoom <node-id>`).
     function zoomTo(id: string): void {
         if (/^[A-Za-z0-9_-]+$/.test(id))
@@ -334,6 +342,10 @@ ShellRoot {
     readonly property real dragSwapSize: Quickshell.env("FRACTAL_EDGE_SWAP_SIZE") !== "" && Quickshell.env("FRACTAL_EDGE_SWAP_SIZE") !== null && !isNaN(parseFloat(Quickshell.env("FRACTAL_EDGE_SWAP_SIZE"))) ? parseFloat(Quickshell.env("FRACTAL_EDGE_SWAP_SIZE")) : 0.3
     // Screen-edge zones: this fraction of the work area's width/height at its edges (0 = off).
     readonly property real dragBand: !isNaN(parseFloat(Quickshell.env("FRACTAL_EDGE_SCREEN_BAND"))) ? parseFloat(Quickshell.env("FRACTAL_EDGE_SCREEN_BAND")) : 0.1
+    // Tabbable windows (the file explorer) are left to merge by drag-and-drop when carried over each
+    // other; while this is on (bind `bin/caelestia-fractal-edges layoutdrop toggle|on|off`) the layout
+    // drop applies to them too.
+    property bool forceLayout: false
     property var ddTracker: DragDrop.create()
     property var tilesByMon: ({})
     property string ddDragging: ""
@@ -397,7 +409,12 @@ ShellRoot {
         for (const name in tilesByMon) {
             const info = tilesByMon[name];
             const zone = DragDrop.screenZone(p, info.area, { "band": dragBand });
-            const t = zone ? DragDrop.screenTarget(zone, info.area) : DragDrop.targetAt(p, info.tiles, r.drag, { "swapSize": dragSwapSize });
+            let t = zone ? DragDrop.screenTarget(zone, info.area) : DragDrop.targetAt(p, info.tiles, r.drag, { "swapSize": dragSwapSize });
+            // explorer window over another explorer window: that app merges them into tabs
+            if (t && !zone && !forceLayout && DragDrop.dragIsTabbable(ddTracker, r.drag) && DragDrop.targetIsTabbable(info.tiles, t.address)) {
+                dbg("drag over a tabbable window: leaving it to the app (layoutdrop on to override)");
+                t = null;
+            }
             if (t) {
                 hit = t;
                 mon = name;
@@ -466,6 +483,13 @@ ShellRoot {
         }
         function isRunning(): string {
             return "true";
+        }
+        // Let the layout drop apply to tabbable windows too (while held / toggled).
+        function layoutDrop(on: bool): void {
+            root.forceLayout = on;
+        }
+        function layoutDropToggle(): void {
+            root.forceLayout = !root.forceLayout;
         }
     }
 
@@ -990,6 +1014,7 @@ ShellRoot {
                         label: geo.label
                         title: geo.title
                         onActivated: root.zoomTo(geo.id)
+                        onHovered: root.focusWindow(geo.address)
                     }
                 }
             }

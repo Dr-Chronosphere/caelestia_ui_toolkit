@@ -248,3 +248,28 @@ A window you float on purpose (a key bind) sits still and never counts as a drag
 disables all of it; `FRACTAL_EDGE_DEBUG=1` logs `float event …` and `drop target …` lines, which show
 whether Hyprland floats your tile when you drag it (if it doesn't, nothing here fires). Logic and
 tests: `DragDrop.js`, `tests/dragdrop.test.mjs`.
+
+## Tabbable windows (the file explorer) and the layout drop
+
+The file explorer merges windows into tabs when you drop one on another. So that doesn't fight the
+layout's drop zones, **an explorer window carried over another explorer window is left to the
+explorer** (no highlight, no drop intent); everywhere else (screen edges, any other window) the
+layout drop applies as usual. To make the layout take over for explorer windows too, bind a key:
+
+    bin/caelestia-fractal-edges layoutdrop on      # key press (a hold: press = on, release = off)
+    bin/caelestia-fractal-edges layoutdrop off
+    bin/caelestia-fractal-edges layoutdrop toggle  # or a single toggle key
+
+A window counts as tabbable when its title starts with `Files #`.
+
+## Zoom on small apps, and how zooming looks
+
+- **Zoom on a card's app.** A card is a layer surface over a small window, so hovering it did not
+  focus that window, and `zoom-in` (the 3-finger swipe up) zoomed into whatever was focused before.
+  Hovering a card now focuses its window through the layout (`focus <address>`), so the zoom
+  gestures act on the app under the pointer.
+- **Camera zoom.** Windows outside the view used to be parked in the top-left corner, so a zoom flew
+  every other window to that corner. With the updated layout engine (`park = "camera"`, the new
+  default) they leave the screen in their own direction, as a real camera zoom would, and slide back
+  in from there on zoom-out; they still overlap their monitor by a few pixels so the map can capture
+  them. `fractal.setup({ park = "corner" })` brings the old behaviour back.

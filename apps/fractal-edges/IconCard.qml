@@ -50,6 +50,8 @@ Item {
 
     // Tap / click: zoom into this window.
     signal activated
+    // The pointer entered the card.
+    signal hovered
 
     // Fade with the shell's own effects curve. A new card starts at 0 and fades in.
     property bool ready: false
@@ -164,6 +166,10 @@ Item {
         StateLayer {
             disabled: !root.interactive
             onClicked: root.activated()
+            onContainsMouseChanged: {
+                if (containsMouse)
+                    root.hovered();
+            }
         }
 
         Column {

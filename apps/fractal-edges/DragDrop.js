@@ -17,7 +17,7 @@ function tiles(status) {
         return out;
     (function walk(n) {
         if (n.kind === "window" && n.address && n.box)
-            out.push({ id: n.id, address: n.address, box: n.box });
+            out.push({ id: n.id, address: n.address, box: n.box, title: n.title || "" });
         (n.children || []).forEach(walk);
     })(status.tree);
     return out;
@@ -62,7 +62,7 @@ function targetAt(p, list, skip, opts) {
 // pure split-screen is always one drop away. Returns "" when the pointer is not near an edge.
 var BAND = 0.1;
 var MIN_BAND_PX = 70;
-var OUTSIDE_PX = 60;       // the pointer may sit this far outside the work area (bar, gaps) and still count
+var OUTSIDE_PX = 160;       // the pointer may sit this far outside the work area (bar, gaps) and still count
 
 function screenZone(p, area, opts) {
     if (!area)
@@ -144,7 +144,32 @@ function create() {
 
 // Call with every status's addresses, so we know which windows were tiles.
 function seeTiles(tr, list) {
-    list.forEach(function (t) { tr.known[t.address] = true; });
+    tr.titles = tr.titles || {};
+    list.forEach(function (t) {
+        tr.known[t.address] = true;
+        tr.titles[t.address] = t.title || "";
+    });
+}
+
+// "Tabbable" windows (the file explorer, whose windows merge into tabs when dragged onto each
+// other) are identified by their title prefix. Dragging one over another is left to that app unless
+// the layout drop is forced (a key bind); screen edges and ordinary windows still use the layout.
+var TABBABLE_PREFIX = "Files #";
+
+function isTabbable(title) {
+    return String(title || "").indexOf(TABBABLE_PREFIX) === 0;
+}
+
+function dragIsTabbable(tr, address) {
+    return !!(tr.titles && isTabbable(tr.titles[address]));
+}
+
+function targetIsTabbable(list, address) {
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].address === address)
+            return isTabbable(list[i].title);
+    }
+    return false;
 }
 
 // `changefloatingmode>>address,1|0`. Returns "start" | "end" | "".
