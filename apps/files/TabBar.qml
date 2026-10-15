@@ -2,7 +2,8 @@ import QtQuick
 import CaelestiaUI
 
 // The explorer's tab strip: one chip per tab (folder name, close button), a "+" button.
-// Middle-click closes a tab. Purely presentational: the host owns the tab list.
+// Middle-click closes a tab. Drag a chip sideways to reorder, or off the strip (down or up) to tear
+// it out into its own window. Purely presentational: the host owns the tab list.
 Item {
     id: root
 
@@ -13,90 +14,171 @@ Item {
     signal activated(string id)
     signal closeRequested(string id)
     signal newRequested
+    signal moveRequested(string id, int to)
+    signal tearRequested(string id)
 
     implicitHeight: 44
 
-    readonly property real chipWidth: Math.max(96, Math.min(220, (width - plus.width - Theme.spacing.small * 2) / Math.max(1, tabs.length) - Theme.spacing.extraSmall))
+    readonly property real gap: Theme.spacing.extraSmall
+    readonly property real leftPad: Theme.padding.medium
+    readonly property real chipWidth: Math.max(96, Math.min(220, (width - plusBtn.width - leftPad - Theme.spacing.small * 2) / Math.max(1, tabs.length) - gap))
+    readonly property real step: chipWidth + gap
+    // How far (px) a chip must leave the strip vertically to count as tearing it out.
+    readonly property real tearDistance: 44
 
-    Row {
-        anchors.left: parent.left
-        anchors.leftMargin: Theme.padding.medium
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Theme.spacing.extraSmall
+    // Scene-coordinate centre of chip `i` (for tests).
+    function chipCenter(i: int): var {
+        const c = chips.itemAt(i);
+        return c ? c.mapToItem(null, c.width / 2, c.height / 2) : null;
+    }
 
-        Repeater {
-            model: root.tabs
+    // Where chip `i` sits while chip `from` is being dragged to slot `to`: the ones in between
+    // shuffle by one to make room.
+    function slotOf(i: int, from: int, to: int): int {
+        if (from < 0 || i === from)
+            return i;
+        if (from < to && i > from && i <= to)
+            return i - 1;
+        if (from > to && i >= to && i < from)
+            return i + 1;
+        return i;
+    }
 
-            delegate: StyledRect {
-                id: chip
+    property int dragFrom: -1
+    property int dragTo: -1
+    property bool dragTear: false
 
-                required property var modelData
-                readonly property bool isActive: modelData.id === root.active
+    Repeater {
+        id: chips
 
-                width: root.chipWidth
-                height: 34
-                radius: Theme.rounding.full
-                color: isActive ? Theme.palette.m3secondaryContainer : "transparent"
+        model: root.tabs
 
-                StateLayer {
-                    onClicked: root.activated(chip.modelData.id)
-                }
+        delegate: StyledRect {
+            id: chip
 
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.MiddleButton
-                    onClicked: root.closeRequested(chip.modelData.id)
-                }
+            required property var modelData
+            required property int index
+            readonly property bool isActive: modelData.id === root.active
+            readonly property bool dragging: drag.active
+            readonly property bool tearing: dragging && Math.abs(drag.translation.y) > root.tearDistance && root.tabs.length > 1
 
-                MaterialIcon {
-                    id: folderIcon
+            x: dragging ? root.leftPad + index * root.step + drag.translation.x : root.leftPad + root.slotOf(index, root.dragFrom, root.dragTo) * root.step
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: dragging ? Math.max(-root.tearDistance * 1.5, Math.min(root.tearDistance * 1.5, drag.translation.y)) : 0
+            z: dragging ? 10 : 0
+            width: root.chipWidth
+            height: 34
+            radius: Theme.rounding.full
+            color: isActive ? Theme.palette.m3secondaryContainer : "transparent"
+            border.width: tearing ? 2 : 0
+            border.color: Theme.palette.m3primary
+            scale: dragging ? 1.04 : 1
+            opacity: tearing ? 0.85 : 1
 
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.padding.medium
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "folder"
-                    iconSize: Theme.iconSize.medium
-                    color: chip.isActive ? Theme.palette.m3onSecondaryContainer : Theme.palette.m3onSurfaceVariant
-                }
+            // Others glide into place; the dragged chip follows the pointer exactly.
+            Behavior on x {
+                enabled: !chip.dragging
 
-                StyledText {
-                    anchors.left: folderIcon.right
-                    anchors.leftMargin: Theme.spacing.small
-                    anchors.right: closeBtn.left
-                    anchors.rightMargin: Theme.spacing.extraSmall
-                    anchors.verticalCenter: parent.verticalCenter
-                    elide: Text.ElideRight
-                    text: chip.modelData.label
-                    color: chip.isActive ? Theme.palette.m3onSecondaryContainer : Theme.palette.m3onSurfaceVariant
-                }
-
-                // Tabs are closable unless it is the only one (closing the window is the window's job).
-                IconButton {
-                    id: closeBtn
-
-                    anchors.right: parent.right
-                    anchors.rightMargin: 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    implicitWidth: 28
-                    implicitHeight: 28
-                    iconSize: Theme.iconSize.small
-                    icon: "close"
-                    type: ButtonBase.Text
-                    visible: root.tabs.length > 1
-                    onClicked: root.closeRequested(chip.modelData.id)
+                Anim {
+                    type: Anim.FastSpatial
                 }
             }
-        }
+            Behavior on scale {
+                Anim {
+                    type: Anim.FastEffects
+                }
+            }
 
-        IconButton {
-            id: plus
+            StateLayer {
+                onClicked: root.activated(chip.modelData.id)
+            }
 
-            icon: "add"
-            type: ButtonBase.Text
-            implicitWidth: 34
-            implicitHeight: 34
-            iconSize: Theme.iconSize.medium
-            onClicked: root.newRequested()
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.MiddleButton
+                onClicked: root.closeRequested(chip.modelData.id)
+            }
+
+            DragHandler {
+                id: drag
+
+                target: null
+                acceptedButtons: Qt.LeftButton
+                onActiveChanged: {
+                    if (active) {
+                        root.dragFrom = chip.index;
+                        root.dragTo = chip.index;
+                    } else {
+                        // (translation is already reset here, so the state is tracked while dragging)
+                        const from = root.dragFrom, to = root.dragTo;
+                        const tear = root.dragTear && root.tabs.length > 1;
+                        root.dragFrom = -1;
+                        root.dragTo = -1;
+                        root.dragTear = false;
+                        if (tear)
+                            root.tearRequested(chip.modelData.id);
+                        else if (to !== from && to >= 0)
+                            root.moveRequested(chip.modelData.id, to);
+                    }
+                }
+                onTranslationChanged: {
+                    if (active) {
+                        root.dragTear = Math.abs(translation.y) > root.tearDistance;
+                        root.dragTo = Math.max(0, Math.min(root.tabs.length - 1, Math.round((chip.index * root.step + translation.x) / root.step)));
+                    }
+                }
+            }
+
+            MaterialIcon {
+                id: folderIcon
+
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.padding.medium
+                anchors.verticalCenter: parent.verticalCenter
+                text: "folder"
+                iconSize: Theme.iconSize.medium
+                color: chip.isActive ? Theme.palette.m3onSecondaryContainer : Theme.palette.m3onSurfaceVariant
+            }
+
+            StyledText {
+                anchors.left: folderIcon.right
+                anchors.leftMargin: Theme.spacing.small
+                anchors.right: closeBtn.left
+                anchors.rightMargin: Theme.spacing.extraSmall
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideRight
+                text: chip.modelData.label
+                color: chip.isActive ? Theme.palette.m3onSecondaryContainer : Theme.palette.m3onSurfaceVariant
+            }
+
+            // Tabs are closable unless it is the only one (closing the window is the window's job).
+            IconButton {
+                id: closeBtn
+
+                anchors.right: parent.right
+                anchors.rightMargin: 2
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: 28
+                implicitHeight: 28
+                iconSize: Theme.iconSize.small
+                icon: "close"
+                type: ButtonBase.Text
+                visible: root.tabs.length > 1
+                onClicked: root.closeRequested(chip.modelData.id)
+            }
         }
+    }
+
+    IconButton {
+        id: plusBtn
+
+        x: root.leftPad + root.tabs.length * root.step
+        anchors.verticalCenter: parent.verticalCenter
+        icon: "add"
+        type: ButtonBase.Text
+        implicitWidth: 34
+        implicitHeight: 34
+        iconSize: Theme.iconSize.medium
+        onClicked: root.newRequested()
     }
 }

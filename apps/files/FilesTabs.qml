@@ -25,6 +25,8 @@ Rectangle {
     signal newTabRequested
     signal closeTabRequested(string id)
     signal activateTabRequested(string id)
+    signal moveTabRequested(string id, int to)
+    signal tearTabRequested(string id)
     signal stateUpdated(string id, var snapshot)
     signal openRequested(string path)
 
@@ -40,6 +42,8 @@ Rectangle {
         }
         return "";
     }
+
+    readonly property alias tabBar: bar
 
     function viewFor(id: string): var {
         for (let i = 0; i < views.count; i++) {
@@ -63,6 +67,14 @@ Rectangle {
         onActivated: root.closeTabRequested(root.active)
     }
     Shortcut {
+        sequence: "Ctrl+Shift+PgUp"
+        onActivated: root.moveTabRequested(root.active, Math.max(0, root.tabs.indexOf(root.active) - 1))
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+PgDown"
+        onActivated: root.moveTabRequested(root.active, Math.min(root.tabs.length - 1, root.tabs.indexOf(root.active) + 1))
+    }
+    Shortcut {
         sequence: "Ctrl+Tab"
         onActivated: root.activateTabRequested(Tabs.cycle(Tabs.make(root.tabs, root.active), 1).active)
     }
@@ -71,56 +83,67 @@ Rectangle {
         onActivated: root.activateTabRequested(Tabs.cycle(Tabs.make(root.tabs, root.active), -1).active)
     }
 
-    TabBar {
-        id: bar
-
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        tabs: root.labels
-        active: root.active
-        onActivated: id => root.activateTabRequested(id)
-        onCloseRequested: id => root.closeTabRequested(id)
-        onNewRequested: root.newTabRequested()
-    }
-
+    // Everything the preview blurs: the tab strip and the views, in one item so the blurred copy
+    // lines up with the real thing exactly.
     Item {
-        id: body
+        id: content
 
-        anchors.top: bar.bottom
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.fill: parent
 
-        Repeater {
-            id: views
+        TabBar {
+            id: bar
 
-            model: root.tabs
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            tabs: root.labels
+            active: root.active
+            onActivated: id => root.activateTabRequested(id)
+            onCloseRequested: id => root.closeTabRequested(id)
+            onNewRequested: root.newTabRequested()
+            onMoveRequested: (id, to) => root.moveTabRequested(id, to)
+            onTearRequested: id => root.tearTabRequested(id)
+        }
 
-            delegate: FilesView {
-                id: view
+        Item {
+            id: body
 
-                required property string modelData
-                readonly property string tabId: modelData
-                property bool restoring: true
+            anchors.top: bar.bottom
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
 
-                anchors.fill: parent
-                home: root.home
-                surfaceAlpha: root.surfaceAlpha
-                visible: modelData === root.active
-                focus: visible
-                onOpenRequested: p => root.openRequested(p)
-                // Skip the churn while the saved state is being applied.
-                onViewStateChanged: {
-                    if (!restoring)
-                        root.stateUpdated(modelData, snapshot());
-                }
-                Component.onCompleted: {
-                    restore(root.states[modelData]);
-                    restoring = false;
+            Repeater {
+                id: views
+
+                model: root.tabs
+
+                delegate: FilesView {
+                    id: view
+
+                    required property string modelData
+                    readonly property string tabId: modelData
+                    property bool restoring: true
+
+                    anchors.fill: parent
+                    home: root.home
+                    surfaceAlpha: root.surfaceAlpha
+                    visible: modelData === root.active
+                    focus: visible
+                    onOpenRequested: p => root.openRequested(p)
+                    // Skip the churn while the saved state is being applied.
+                    onViewStateChanged: {
+                        if (!restoring)
+                            root.stateUpdated(modelData, snapshot());
+                    }
+                    Component.onCompleted: {
+                        restore(root.states[modelData]);
+                        restoring = false;
+                    }
                 }
             }
         }
+
     }
 
     // --- drop preview: another explorer window is being carried over this one -----------------
@@ -128,41 +151,47 @@ Rectangle {
     Item {
         id: preview
 
-        anchors.fill: parent
-        opacity: root.dropPreview ? 1 : 0
-        visible: opacity > 0
+        // 0..1, eased with the shell's curve: the blur, the scrim and then the label come up in turn.
+        property real level: root.dropPreview ? 1 : 0
 
-        Behavior on opacity {
+        Behavior on level {
             Anim {
-                type: Anim.DefaultEffects
+                type: Anim.SlowEffects
+                duration: root.dropPreview ? 520 : 320
             }
         }
 
-        // A blurred copy of the contents (GPU renderers); the plain scrim below covers the rest.
+        anchors.fill: parent
+        visible: level > 0.001
+
+        // A blurred copy of the whole window content (GPU renderers); the scrim covers the rest.
         ShaderEffectSource {
             id: snap
 
             anchors.fill: parent
-            sourceItem: body
+            sourceItem: content
             live: root.dropPreview
             hideSource: false
             visible: GraphicsInfo.api !== GraphicsInfo.Software
+            opacity: Math.min(1, preview.level * 1.6)
             layer.enabled: visible
             layer.effect: MultiEffect {
                 blurEnabled: true
                 blurMax: 48
-                blur: 1.0
+                blur: preview.level
             }
         }
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.alpha(Theme.palette.m3surface, 0.55)
+            color: Qt.alpha(Theme.palette.m3surface, 0.5 * preview.level)
         }
 
         Column {
             anchors.centerIn: parent
             spacing: Theme.spacing.small
+            opacity: Math.max(0, (preview.level - 0.4) / 0.6)
+            scale: 0.9 + 0.1 * Math.max(0, (preview.level - 0.4) / 0.6)
 
             MaterialIcon {
                 anchors.horizontalCenter: parent.horizontalCenter

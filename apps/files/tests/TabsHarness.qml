@@ -51,6 +51,15 @@ Item {
     function mergeWindows(from, to) {
         return m.merge(from, to);
     }
+    function moveTab(winId, tabId, to) {
+        m.moveTab(winId, tabId, to);
+    }
+    function tearOut(winId, tabId) {
+        return m.tearOut(winId, tabId);
+    }
+    function chipCenter(winId, i) {
+        return (winId === "1" ? left : right).tabBar.chipCenter(i);
+    }
     function setPreview(winId) {
         previewOn = winId;
     }
@@ -69,6 +78,8 @@ Item {
         onNewTabRequested: m.addTab("1", "")
         onCloseTabRequested: id => m.closeTab("1", id)
         onActivateTabRequested: id => m.activateTab("1", id)
+        onMoveTabRequested: (id, to) => m.moveTab("1", id, to)
+        onTearTabRequested: id => m.tearOut("1", id)
         onStateUpdated: (id, s) => m.updateState(id, s)
     }
 
@@ -86,6 +97,8 @@ Item {
         onNewTabRequested: m.addTab("2", "")
         onCloseTabRequested: id => m.closeTab("2", id)
         onActivateTabRequested: id => m.activateTab("2", id)
+        onMoveTabRequested: (id, to) => m.moveTab("2", id, to)
+        onTearTabRequested: id => m.tearOut("2", id)
         onStateUpdated: (id, s) => m.updateState(id, s)
     }
 

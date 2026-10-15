@@ -232,6 +232,8 @@ ShellRoot {
                 onNewTabRequested: root.model.addTab(win.modelData, "")
                 onCloseTabRequested: id => root.model.closeTab(win.modelData, id)
                 onActivateTabRequested: id => root.model.activateTab(win.modelData, id)
+                onMoveTabRequested: (id, to) => root.model.moveTab(win.modelData, id, to)
+                onTearTabRequested: id => root.model.tearOut(win.modelData, id)
                 onStateUpdated: (id, snap) => root.model.updateState(id, snap)
                 onOpenRequested: p => Quickshell.execDetached(["xdg-open", p])
             }

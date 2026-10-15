@@ -97,6 +97,47 @@ check(w1["tabs"] == [t1, t1b, t2] and w1["active"] == t2, "its tab was appended 
 check(ask("viewPath", "1", t2) == str(home / "Projects"), "moved tab opens at the folder it was on")
 check(json.loads(str(ask("chips", "1"))) == ["Home", "Desktop", "Projects"], "three chips after the merge")
 
+# reordering: the model, then a mouse drag of a chip sideways
+ask("moveTab", "1", t2, 0)
+wait()
+check(state()["windows"][0]["tabs"] == [t2, t1, t1b], "moveTab reorders")
+check(json.loads(str(ask("chips", "1"))) == ["Projects", "Home", "Desktop"], "chips follow the new order")
+
+from PySide6.QtCore import QPoint
+
+
+def chip_center(i):
+    p = ask("chipCenter", "1", i)
+    return QPoint(int(p.x()), int(p.y()))
+
+
+def drag(src, dst):
+    QTest.mousePress(view, Qt.LeftButton, Qt.NoModifier, src)
+    steps = 8
+    for k in range(1, steps + 1):
+        QTest.mouseMove(view, QPoint(src.x() + (dst.x() - src.x()) * k // steps, src.y() + (dst.y() - src.y()) * k // steps))
+        QTest.qWait(15)
+    QTest.mouseRelease(view, Qt.LeftButton, Qt.NoModifier, dst)
+    wait(300)
+
+
+c0, c2 = chip_center(0), chip_center(2)
+drag(c0, QPoint(c2.x() + 6, c0.y()))                      # first chip dragged past the last
+check(state()["windows"][0]["tabs"] == [t1, t1b, t2], f"dragging a chip sideways reorders ({state()['windows'][0]['tabs']})")
+check(len(state()["windows"]) == 1, "a sideways drag does not tear a tab out")
+
+# tearing out: dragging a chip well off the strip makes it a window of its own
+c1 = chip_center(1)
+drag(c1, QPoint(c1.x(), c1.y() + 90))
+s = state()
+check(len(s["windows"]) == 2, f"dragging a chip off the strip tears it out into a new window ({[w['id'] for w in s['windows']]})")
+torn = [w for w in s["windows"] if w["tabs"] == [t1b]]
+check(len(torn) == 1 and torn[0]["active"] == t1b, "the torn-out window holds exactly that tab")
+check(state()["windows"][0]["tabs"] == [t1, t2], "and the others stay, in order")
+check(s["states"][t1b]["path"] == str(home / "Desktop"), "the torn-out tab keeps its folder")
+ask("mergeWindows", torn[0]["id"], "1")                  # put it back for the close test below
+wait()
+
 # closing tabs
 ask("closeTab", "1", t2)
 wait()

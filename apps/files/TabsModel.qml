@@ -81,6 +81,29 @@ QtObject {
             setWindow(winId, Tabs.activate(windows[i], tabId));
     }
 
+    // Move a tab to position `to` within its window.
+    function moveTab(winId: string, tabId: string, to: int): void {
+        const i = winIndex(winId);
+        if (i >= 0)
+            setWindow(winId, Tabs.move(windows[i], tabId, to));
+    }
+
+    // Tear a tab out into a window of its own (it keeps its folder and history). A window's only
+    // tab stays where it is. Returns the new window's id, or "".
+    function tearOut(winId: string, tabId: string): string {
+        const i = winIndex(winId);
+        if (i < 0 || windows[i].tabs.length < 2 || windows[i].tabs.indexOf(tabId) < 0)
+            return "";
+        const rest = Tabs.close(windows[i], tabId);
+        winCounter++;
+        const id = String(winCounter);
+        const next = windows.slice();
+        next[i] = { "id": winId, "tabs": rest.tabs, "active": rest.active };
+        next.push({ "id": id, "tabs": [tabId], "active": tabId });
+        windows = next;
+        return id;
+    }
+
     function updateState(tabId: string, snap: var): void {
         states = Object.assign({}, states, { [tabId]: snap });
     }

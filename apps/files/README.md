@@ -43,7 +43,9 @@ renderer (the GPU mask path is untested), and nothing has been run in a live Qui
 ## Tabs and merging windows
 
 Every explorer window has tabs (`Ctrl+T` new, `Ctrl+W` close, `Ctrl+Tab` / `Ctrl+Shift+Tab` cycle,
-middle-click a tab to close it). Run `bin/caelestia-files [path]` again and it opens another window
+`Ctrl+Shift+PgUp/PgDn` move the tab left/right, middle-click a tab to close it). **Drag a tab sideways
+to reorder it, or drag it off the strip (down or up, about 44 px) to tear it out into a window of its
+own**; the chip outlines when letting go will tear it. A window's only tab can't be torn out.. Run `bin/caelestia-files [path]` again and it opens another window
 in the running instance (`--tab [path]` opens a tab in the newest window instead).
 
 **Drag one explorer window over another** (Super+drag, or however you move windows) and the window
