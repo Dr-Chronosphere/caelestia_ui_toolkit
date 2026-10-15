@@ -88,3 +88,9 @@ Hyprland restart or a layout switch.
 Not planned: the in-process QML workspace ("Tier A") from `spaces-design.md`. fractal-wm
 gives the real-window version of the idea, so Tier A is only worth doing later for toolkit apps
 that want to be embedded in it.
+
+- **Default layout**: `caelestia-fractal-setup install` (step 7) appends
+  `hl.config({ general = { layout = "lua:fractal" } })` to your `hyprland.lua` (after asking, backup
+  at `hyprland.lua.bak-fractal`) so every workspace uses fractal, not just ones you ran `fractal on`
+  on. Delete the two added lines to undo. The edge overlay only draws on workspaces whose layout is
+  `lua:fractal` and that have a `ws-<id>.json` (`bin/caelestia-fractal-edges doctor` shows both).
