@@ -23,6 +23,10 @@ Item {
     property bool shown: true
     // Ease opacity changes; false makes it follow `alpha` immediately (during a drag).
     property bool smooth: true
+    // Appear fully shown instead of fading in from nothing (a card that is just part of a workspace
+    // that slides into view).
+    property bool startShown: false
+    property bool _applied: false
     // Length of the fade once it eases (after the layout settles or when a card leaves).
     property int fadeMs: 450
     // Tint opacity of the card's backing. The host blurs what is behind the card (a layer rule),
@@ -67,7 +71,9 @@ Item {
     }
 
     function applyTarget() {
-        if (!root.smooth) {
+        const first = !root._applied;
+        root._applied = true;
+        if (!root.smooth || (first && root.startShown)) {
             fade.stop();
             root.level = root.target;
         } else if (fade.to !== root.target || !fade.running) {

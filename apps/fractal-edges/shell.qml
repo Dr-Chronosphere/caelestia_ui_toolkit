@@ -16,6 +16,7 @@ import CaelestiaUI
 import "Seams.js" as Seams
 import "Lod.js" as Lod
 import "DragDrop.js" as DragDrop
+import "Follow.js" as Follow
 
 ShellRoot {
     id: root
@@ -231,12 +232,15 @@ ShellRoot {
     function applyLayerRule(): void {
         if (!roundingProc.running)
             roundingProc.running = true;
+        if (!animProc.running)
+            animProc.running = true;
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
     }
 
     Component.onCompleted: {
         applyLayerRule();
         roundingProc.running = true;
+        animProc.running = true;
         refreshFloating();
     }
 
@@ -328,6 +332,27 @@ ShellRoot {
             if (v !== null)
                 root.windowRounding = v;
         }
+    }
+
+    // --- cards that follow their windows ---------------------------------------------------------
+    // While Hyprland animates windows (a zoom, a reflow) the card tracks the window's CURRENT rect
+    // (polled from `hyprctl clients -j`, which reports the animated position) instead of jumping to the
+    // settled one; on a workspace switch the old workspace's cards slide out and the new one's slide in
+    // like the workspaces do. FRACTAL_EDGE_FOLLOW=off / FRACTAL_EDGE_WS_SLIDE=off disable each.
+    readonly property bool followCards: Quickshell.env("FRACTAL_EDGE_FOLLOW") !== "off"
+    readonly property bool slideCards: Quickshell.env("FRACTAL_EDGE_WS_SLIDE") !== "off"
+    property var wsAnim: null            // { ms, style } from `hyprctl animations -j`, or null
+
+    Process {
+        id: animProc
+
+        command: ["hyprctl", "animations", "-j"]
+        stdout: StdioCollector {
+            id: animOut
+
+            waitForEnd: true
+        }
+        onExited: root.wsAnim = Follow.parseWorkspaceAnim(String(animOut.text || ""))
     }
 
     // --- dragging a tiled window: show where it will land, and tell the layout ------------------
@@ -517,6 +542,80 @@ ShellRoot {
             readonly property real originY: mon ? (mon.y !== undefined ? mon.y : (mon.lastIpcObject ? mon.lastIpcObject.y : 0)) : 0
 
             property var status: null
+            // --- following windows through transitions ---
+            property var liveRects: ({})
+            property bool followOn: false
+            property int followStable: 0
+            property real followUntil: 0
+            // Workspace slide: the old workspace's cards (a snapshot) and the progress of the slide.
+            property var slideSnap: null
+            property int slideDir: 1
+            property real slideT: 1
+            property int lastWs: -1
+            readonly property bool sliding: slideT < 1
+            readonly property string slideStyle: root.wsAnim ? root.wsAnim.style : "slide"
+
+            function startFollow(): void {
+                if (!root.followCards || dragging || sliding)
+                    return;
+                followUntil = Date.now() + 1600;
+                followStable = 0;
+                followOn = true;
+            }
+
+            function onFollowSample(text: string): void {
+                const rects = Follow.rectsByAddress(text);
+                const list = [];
+                for (const k in cardMap)
+                    list.push(cardMap[k]);
+                const moving = Follow.transitioning(list, rects, root.cardOutset);
+                liveRects = rects;
+                if (moving) {
+                    followStable = 0;
+                    followUntil = Math.max(followUntil, Date.now() + 400);
+                } else {
+                    followStable++;
+                }
+                if (followStable >= 3 || Date.now() > followUntil || dragging || sliding) {
+                    followOn = false;
+                    liveRects = ({});
+                }
+            }
+
+            Timer {
+                interval: 33
+                repeat: true
+                running: scope.followOn
+                onTriggered: {
+                    if (!followProc.running)
+                        followProc.running = true;
+                }
+            }
+
+            Process {
+                id: followProc
+
+                command: ["hyprctl", "clients", "-j"]
+                stdout: StdioCollector {
+                    id: followOut
+
+                    waitForEnd: true
+                }
+                onExited: scope.onFollowSample(String(followOut.text || ""))
+            }
+
+            NumberAnimation {
+                id: slideAnim
+
+                target: scope
+                property: "slideT"
+                from: 0
+                to: 1
+                duration: root.wsAnim ? root.wsAnim.ms : 400
+                easing.type: Easing.OutCubic
+                onFinished: scope.slideSnap = null
+            }
+
             // Handle windows are keyed by seam ("a|b") and kept alive; only their geometry
             // updates. The window delegates read their seam from `seamMap`.
             property var seamKeys: []
@@ -746,7 +845,14 @@ ShellRoot {
                 const m = Object.assign({}, root.tilesByMon);
                 m[modelData.name] = {
                     "tiles": tl,
-                    "area": status ? status.area : null
+                    "area": status ? status.area : null,
+                    "mon": {
+                        "x": originX,
+                        "y": originY,
+                        "w": modelData.width,
+                        "h": modelData.height
+                    },
+                    "ws": wsId
                 };
                 root.tilesByMon = m;
                 if (root.profile)
@@ -754,9 +860,28 @@ ShellRoot {
                 measureTimer.fetched = false;
                 measureTimer.interval = 600;
                 measureTimer.restart();
+                startFollow();
                 rebuild();
             }
             onWsIdChanged: {
+                // Slide the old workspace's cards out (a snapshot) and the new one's in, with the
+                // workspace animation; otherwise they would pop while the windows slide.
+                if (root.slideCards && root.wsAnim && lastWs > 0 && wsId > 0 && wsId !== lastWs) {
+                    if (cardKeys.length > 0)
+                        slideSnap = {
+                            "keys": cardKeys,
+                            "map": cardMap
+                        };
+                    slideDir = wsId > lastWs ? 1 : -1;
+                    cardKeys = [];
+                    cardMap = ({});
+                    cardKeysKey = "";
+                    cardMapKey = "";
+                    followOn = false;
+                    slideAnim.restart();
+                }
+                if (wsId > 0)
+                    lastWs = wsId;
                 status = null;
                 root.dbg(modelData.name + ": workspace " + wsId + " layout=" + (ws && ws.lastIpcObject ? ws.lastIpcObject.tiledLayout : "?") + " active=" + fractalActive);
                 updateBlockers();
@@ -970,6 +1095,39 @@ ShellRoot {
                     cornerRadius: root.cardRadius
                 }
 
+                // The previous workspace's cards, sliding out while the new ones slide in.
+                Repeater {
+                    model: scope.slideSnap ? scope.slideSnap.keys : []
+
+                    delegate: IconCard {
+                        required property string modelData
+
+                        readonly property var geo: scope.slideSnap ? (scope.slideSnap.map[modelData] ?? null) : null
+                        readonly property var slide: Follow.slideOffset(scope.slideDir, scope.slideStyle, false, scope.slideT, scope.modelData.width, scope.modelData.height)
+
+                        visible: geo !== null
+                        x: geo ? Math.round(geo.x - scope.originX + slide.x) : 0
+                        y: geo ? Math.round(geo.y - scope.originY + slide.y) : 0
+                        width: geo ? Math.max(1, Math.round(geo.w)) : 1
+                        height: geo ? Math.max(1, Math.round(geo.h)) : 1
+                        startShown: true
+                        smooth: false
+                        shown: true
+                        alpha: geo && geo.alpha !== undefined ? geo.alpha : 1
+                        tint: root.translucent ? 0.55 : 1
+                        backdrop: root.wallpaperUrl
+                        backdropX: x
+                        backdropY: y
+                        backdropW: scope.modelData.width
+                        backdropH: scope.modelData.height
+                        blurAmount: root.blurAmount
+                        cornerRadius: root.cardRadius
+                        iconSource: geo ? root.iconFor(geo.label) : ""
+                        label: geo ? geo.label : ""
+                        title: geo ? geo.title : ""
+                    }
+                }
+
                 Repeater {
                     model: scope.cardKeys
 
@@ -990,10 +1148,49 @@ ShellRoot {
                                 "leaving": true
                             })
 
-                        x: Math.round(geo.x - scope.originX)
-                        y: Math.round(geo.y - scope.originY)
-                        width: Math.max(1, Math.round(geo.w))
-                        height: Math.max(1, Math.round(geo.h))
+                        // While a transition is under way the card tracks its window's current rect.
+                        readonly property var live: scope.followOn ? scope.liveRects[geo.address] : undefined
+                        readonly property var rect: live ? Follow.cardFromLive(live, root.cardOutset) : geo
+                        readonly property var slide: scope.sliding ? Follow.slideOffset(scope.slideDir, scope.slideStyle, true, scope.slideT, scope.modelData.width, scope.modelData.height) : ({
+                                "x": 0,
+                                "y": 0
+                            })
+
+                        x: Math.round(rect.x - scope.originX + slide.x)
+                        y: Math.round(rect.y - scope.originY + slide.y)
+                        width: Math.max(1, Math.round(rect.w))
+                        height: Math.max(1, Math.round(rect.h))
+                        // A card made during a slide is simply there (no fade-in from nothing).
+                        startShown: scope.sliding
+                        // Glide between the ~30 Hz samples of the window's position.
+                        Behavior on x {
+                            enabled: scope.followOn
+
+                            NumberAnimation {
+                                duration: 45
+                            }
+                        }
+                        Behavior on y {
+                            enabled: scope.followOn
+
+                            NumberAnimation {
+                                duration: 45
+                            }
+                        }
+                        Behavior on width {
+                            enabled: scope.followOn
+
+                            NumberAnimation {
+                                duration: 45
+                            }
+                        }
+                        Behavior on height {
+                            enabled: scope.followOn
+
+                            NumberAnimation {
+                                duration: 45
+                            }
+                        }
                         shown: !geo.leaving
                         // Opacity eases only for a settled card (after mouse-up, or no drag at all) or one
                         // leaving; while you drag it tracks the tile directly. The flag travels in the
