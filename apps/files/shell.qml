@@ -74,7 +74,18 @@ ShellRoot {
 
     function untile(address: string): void {
         const lua = 'pcall(function() hl.dispatch(hl.dsp.window.float({ action = "off", window = "address:0x' + address + '" })) end)';
-        Quickshell.execDetached(["sh", "-c", "hyprctl eval '" + lua + "'; sleep 0.25; hyprctl eval '" + lua + "'"]);
+        // Hyprland can decide a Quickshell window floats AFTER it maps (and after the first un-float
+        // lands), so keep checking for about 3 s: whenever the window is reported floating, un-float
+        // it; stop once it has read as tiled three times in a row. Without jq it just repeats the
+        // command on a schedule (un-floating a tiled window is a no-op).
+        const script = 'lua=\'' + lua + '\'; addr=0x' + address + '; ok=0; i=0; '
+            + 'if command -v jq >/dev/null 2>&1; then '
+            + 'while [ $i -lt 15 ] && [ $ok -lt 3 ]; do '
+            + 'f=$(hyprctl clients -j | jq -r --arg a "$addr" \'.[] | select(.address == $a) | .floating\'); '
+            + 'if [ "$f" = true ]; then hyprctl eval "$lua" >/dev/null; ok=0; elif [ "$f" = false ]; then ok=$((ok+1)); fi; '
+            + 'i=$((i+1)); sleep 0.2; done; '
+            + 'else for d in 0 0.2 0.2 0.4 0.8 1.4; do sleep $d; hyprctl eval "$lua" >/dev/null; done; fi';
+        Quickshell.execDetached(["sh", "-c", script]);
     }
 
     Connections {
