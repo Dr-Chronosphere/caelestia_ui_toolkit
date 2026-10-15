@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import CaelestiaUI
 import "logic/Tabs.js" as Tabs
 import "logic/Merge.js" as Merge
@@ -54,7 +55,31 @@ ShellRoot {
             merge(r.drop.from, r.drop.to);
     }
 
-    Component.onCompleted: model.newWindow(Quickshell.env("FILES_START") || home)
+    // Quickshell windows open floating on Hyprland. A window rule makes explorer windows tile like
+    // any other app (rules are read when a window opens, so it is set before the first one, and
+    // again after a config reload, which drops runtime rules). FILES_TILE=off skips it. The call is
+    // wrapped in pcall, so a Hyprland whose rule syntax differs just ignores it.
+    readonly property bool tile: Quickshell.env("FILES_TILE") !== "off"
+    readonly property string tileRule: 'pcall(hl.window_rule, { name = "caelestia-files-tile", match = { title = "^Files #" }, tile = true })'
+
+    function applyTileRule(): void {
+        if (tile)
+            Quickshell.execDetached(["hyprctl", "eval", tileRule]);
+    }
+
+    Connections {
+        target: Hyprland
+
+        function onRawEvent(event): void {
+            if (event.name === "configreloaded")
+                root.applyTileRule();
+        }
+    }
+
+    Component.onCompleted: {
+        applyTileRule();
+        model.newWindow(Quickshell.env("FILES_START") || home);
+    }
 
     // Sample window geometry only while there is something to merge into.
     Timer {

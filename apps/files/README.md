@@ -74,3 +74,13 @@ become one window with both windows' tabs (each tab keeps its folder and back/fo
   for example (Lua config) `hl.window_rule({ match = { title = "^Files #" }, blur = true })`. The
   exact rule syntax depends on your Hyprland version, so check it against your config's other
   window rules.
+
+## Tiling
+
+Quickshell windows open floating on Hyprland. At startup the app registers a window rule (through
+`hyprctl eval`) that tiles windows titled `Files #…`, and re-registers it after a config reload.
+`FILES_TILE=off` skips that. If your Hyprland rejects the rule or ignores it, put the equivalent in
+your own config, for example `hl.window_rule({ match = { title = "^Files #" }, tile = true })`.
+To see what Hyprland thinks of the window:
+`hyprctl clients -j | jq '.[] | select(.title | startswith("Files #")) | {class, title, floating}'`.
+Windows already open when the rule is added stay floating; close and reopen them.
