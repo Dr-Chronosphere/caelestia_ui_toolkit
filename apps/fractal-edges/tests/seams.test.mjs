@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import vm from "node:vm";
@@ -5,7 +7,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,measureInsets,parseRounding,isCardWindow,cardWindowAddresses,cardWindowRuleCommand,placeCardsCommand,hasFloating,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,measureInsets,parseRounding,hopCommand,isCardWindow,cardWindowAddresses,cardWindowRuleCommand,placeCardsCommand,hasFloating,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -310,4 +312,39 @@ assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clJ, stJ))), { inner:
   assert.match(S.placeCardsCommand([{ address: "0xabc", x: 1, y: 2, w: 3, h: 4 }]), /set_prop/, "can switch animations off for a placement");
   assert.ok(!cmd.includes("boom") && !cmd.includes("0xdef"), "unsafe addresses and non-numbers are dropped");
   assert.equal(S.placeCardsCommand([]), "");
+}
+
+// ---- every snippet sent to Hyprland must be valid Lua (a syntax error means nothing runs, silently) ----
+import { spawnSync } from "node:child_process";
+import os from "node:os";
+{
+  const have = spawnSync("lua5.4", ["-v"]).status === 0;
+  if (!have) {
+    console.log("(lua5.4 not found: Lua syntax checks skipped)");
+  } else {
+    const lint = (name, code) => {
+      const r = spawnSync("lua5.4", ["-e", "local f, e = load(io.read('a')); if not f then io.stderr:write(e) os.exit(1) end"], { input: code });
+      assert.equal(r.status, 0, `${name} is not valid Lua: ${r.stderr}`);
+    };
+    lint("layer rule", S.layerRuleCommand());
+    lint("animations on", S.animCommand(true));
+    lint("animations off", S.animCommand(false));
+    lint("card window rules", S.cardWindowRuleCommand());
+    lint("card placement", S.placeCardsCommand([{ address: "0xabc", x: 1, y: 2, w: 3, h: 4, instant: true }, { address: "0xdef", x: 5, y: 6, w: 7, h: 8 }]));
+    lint("workspace hop", S.hopCommand("0xabc", "3"));
+    assert.equal(S.hopCommand("0xabc; boom", "3"), "");
+    assert.equal(S.hopCommand("0xabc", "3; boom"), "");
+    // run the card rules against a stand-in hl: all four register and log "ok"; a rejected key logs ERROR
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rules-"));
+    const run = (hlBody) => spawnSync("lua5.4", ["-e", `hl = { window_rule = ${hlBody} }; ` + S.cardWindowRuleCommand()], { env: { ...process.env, XDG_STATE_HOME: dir } });
+    assert.equal(run("function(spec) end").status, 0);
+    let log = fs.readFileSync(path.join(dir, "fractal-edges/rules.log"), "utf8").trim().split("\n");
+    assert.equal(log.length, 4);
+    assert.ok(log.every(l => l.includes(": ok")), log.join("|"));
+    fs.rmSync(path.join(dir, "fractal-edges/rules.log"));
+    assert.equal(run("function(spec) if spec.tag then error('unknown key tag') end end").status, 0, "a rejected rule does not stop the others");
+    log = fs.readFileSync(path.join(dir, "fractal-edges/rules.log"), "utf8").trim().split("\n");
+    assert.equal(log.filter(l => l.includes("ERROR")).length, 1, log.join("|"));
+    assert.equal(log.filter(l => l.includes(": ok")).length, 3, "the other three still registered");
+  }
 }

@@ -556,7 +556,7 @@ function cardWindowRuleCommand() {
     var head = 'local function R(n, s) local ok, e = pcall(hl.window_rule, s); '
         + 'local d = (os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state")) .. "/fractal-edges"; '
         + 'os.execute("mkdir -p " .. d); local f = io.open(d .. "/rules.log", "a"); '
-        + 'if f then f:write(os.date("%T "), n, ": ", ok and "ok" or ("ERROR " .. tostring(e)), "\n"); f:close() end end; ';
+        + 'if f then f:write(os.date("%T "), n, ": ", ok and "ok" or ("ERROR " .. tostring(e)), "\\n"); f:close() end end; ';
     return head + CARD_RULES.map(function (r) {
         return 'R("' + r[0] + '", { name = "fractal-edges-card-' + r[0] + '", match = { title = "^fractal-edges-card " }, ' + r[1] + ' })';
     }).join("; ");
@@ -584,4 +584,15 @@ function placeCardsCommand(list) {
         + 'pcall(function() hl.dispatch(hl.dsp.window.resize({ window = win, x = w, y = h })); hl.dispatch(hl.dsp.window.move({ window = win, x = x, y = y, relative = false })) end); '
         + 'if instant then pcall(hl.timer, function() prop(win, "0") end, { timeout = 150, type = "oneshot" }) end end; '
         + parts.join("; ");
+}
+
+// Lua for the workspace hop: move the window to workspace `ws`, following it; if that form is not
+// accepted, move it and then focus the workspace. Address and workspace are checked.
+function hopCommand(address, ws) {
+    if (!/^0x[0-9a-f]+$/i.test(String(address)) || !/^[0-9]+$/.test(String(ws)))
+        return "";
+    return 'local w = "address:' + address + '"; local n = "' + ws + '"; '
+        + 'local ok = pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, follow = true, window = w })) end); '
+        + 'if not ok then pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, window = w })) end); '
+        + 'pcall(function() hl.dispatch(hl.dsp.focus({ workspace = n })) end) end';
 }

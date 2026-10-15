@@ -264,10 +264,12 @@ A window counts as tabbable when its title starts with `Files #`.
 
 ## Zoom on small apps, and how zooming looks
 
-- **Zoom on a card's app.** A card is a layer surface over a small window, so hovering it did not
-  focus that window, and `zoom-in` (the 3-finger swipe up) zoomed into whatever was focused before.
-  Hovering a card now focuses its window through the layout (`focus <address>`), so the zoom
-  gestures act on the app under the pointer.
+- **Zoom on a card's app.** A card never takes focus, so `zoom-in` (the 3-finger swipe up) used to
+  zoom into whatever was focused before. (A first fix focused the window on hover, but Hyprland
+  warps the cursor to a window when it is focused, which teleported the pointer.) Now the zoom-in
+  gestures read the pointer position (`hl.get_cursor_pos()`) and send the layout `zoom-at <x> <y>`,
+  which zooms into the window under the pointer without touching focus. Keyboard `zoom-in` still
+  uses the focused window.
 - **Camera zoom.** Windows outside the view used to be parked in the top-left corner, so a zoom flew
   every other window to that corner. With the updated layout engine (`park = "camera"`, the new
   default) they leave the screen in their own direction, as a real camera zoom would, and slide back
@@ -379,3 +381,14 @@ Card moves are now sent as direct dispatches over the Hyprland socket the moment
 changes (no helper process in between), so the card starts moving with its window; the first
 placement of a new card is instant and the card stays invisible until the compositor reports its
 window at the right place.
+
+### Why the card window rules did not run (fixed)
+
+The rule snippet had a `"\n"` with the wrong escaping, which made it invalid Lua, so `hyprctl eval`
+ran none of it (no rules, no `rules.log`: the card windows were then ordinary windows, centred, focusable
+and counted by the bar). Every snippet sent to Hyprland is now checked with a real Lua parser in
+`tests/seams.test.mjs` (when `lua5.4` is installed), and the rule snippet is executed against a stand-in
+`hl`, so a syntax error like that cannot come back unnoticed.
+
+A fading card (one whose tile grew, or whose window closed) is now removed only after its 450 ms fade
+has finished (540 ms), so the fade-out is always seen.

@@ -60,6 +60,22 @@ local function layout(msg)
   return function() hl.dispatch(hl.dsp.layout(msg)) end
 end
 
+-- Zoom in on the window UNDER THE POINTER (the layout's `zoom-at x y`), not the focused one: the focused
+-- window is often another one (an icon card over a small app never takes focus), and changing focus
+-- would warp the cursor. Falls back to the plain zoom-in when the pointer position is not available.
+local function zoom_in_under_pointer()
+  return function()
+    local ok, pos = pcall(hl.get_cursor_pos)
+    local x = ok and type(pos) == "table" and tonumber(pos.x or pos[1]) or nil
+    local y = ok and type(pos) == "table" and tonumber(pos.y or pos[2]) or nil
+    if x and y then
+      hl.dispatch(hl.dsp.layout(string.format("zoom-at %d %d", math.floor(x), math.floor(y))))
+    else
+      hl.dispatch(hl.dsp.layout("zoom-in"))
+    end
+  end
+end
+
 local function try(label, spec)
   local ok, err = pcall(hl.gesture, spec)
   note("%s: %s", label, ok and "accepted" or ("REJECTED (" .. tostring(err) .. ")"))
@@ -121,7 +137,7 @@ function M.setup(opts)
   if type(hl) ~= "table" or type(hl.gesture) ~= "function" then
     note("hl.gesture is not available in this Hyprland: touchpad gestures not installed")
   else
-    try(fingers .. "-finger swipe up -> zoom-in", { fingers = fingers, direction = "up", action = layout("zoom-in") })
+    try(fingers .. "-finger swipe up -> zoom-in", { fingers = fingers, direction = "up", action = zoom_in_under_pointer() })
     try(fingers .. "-finger swipe down -> zoom-out", { fingers = fingers, direction = "down", action = layout("zoom-out") })
     if special_fingers then
       -- Hyprland's built-in "special" action takes the workspace name as `workspace_name` (the same
@@ -139,7 +155,7 @@ function M.setup(opts)
     end
     if mod_fingers then
       try(mod_fingers .. "-finger swipe up + " .. mods .. " -> zoom-in",
-        { fingers = mod_fingers, direction = "up", mods = mods, action = layout("zoom-in") })
+        { fingers = mod_fingers, direction = "up", mods = mods, action = zoom_in_under_pointer() })
       try(mod_fingers .. "-finger swipe down + " .. mods .. " -> zoom-out",
         { fingers = mod_fingers, direction = "down", mods = mods, action = layout("zoom-out") })
     end

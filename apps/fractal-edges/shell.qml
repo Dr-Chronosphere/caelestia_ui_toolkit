@@ -517,7 +517,7 @@ ShellRoot {
     Process {
         id: hopProc
 
-        command: ["hyprctl", "eval", 'local w = "address:' + root.hopWindow + '"; local n = "' + root.hopNextWs + '"; ' + 'local ok = pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, follow = true, window = w })) end); ' + 'if not ok then pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, window = w })) end); pcall(function() hl.dispatch(hl.dsp.focus({ workspace = n })) end) end']
+        command: ["hyprctl", "eval", Seams.hopCommand(root.hopWindow, String(root.hopNextWs))]
         stdout: StdioCollector {
             id: hopOut
 
@@ -1344,8 +1344,10 @@ ShellRoot {
             Timer {
                 id: leaveTimer
 
-                interval: 280
-                onTriggered: scope.applyCards(Lod.purge(scope.cardMap, Date.now(), 260))
+                // A leaving card fades out over IconCard.fadeMs (450); its window (or surface) is only
+                // removed after that, so the fade is always seen.
+                interval: 540
+                onTriggered: scope.applyCards(Lod.purge(scope.cardMap, Date.now(), 500))
             }
 
             // After release the guide springs to the limit, then fades out (so it cross-fades
@@ -1517,7 +1519,6 @@ ShellRoot {
                         label: cw.geo ? cw.geo.label : ""
                         title: cw.geo ? cw.geo.title : ""
                         onActivated: if (cw.geo) root.zoomTo(cw.geo.id)
-                        onHovered: if (cw.geo) root.focusWindow(cw.geo.address)
                     }
                 }
             }
@@ -1683,8 +1684,7 @@ ShellRoot {
                             label: geo.label
                             title: geo.title
                             onActivated: root.zoomTo(geo.id)
-                            onHovered: root.focusWindow(geo.address)
-                        }
+                            }
                     }
                 }
             }

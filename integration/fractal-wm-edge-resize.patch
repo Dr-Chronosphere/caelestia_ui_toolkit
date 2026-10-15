@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..8fceb7b 100644
+index f4f204f..bbe15a7 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -132,6 +132,15 @@ index f4f204f..8fceb7b 100644
        else
          t:place(parked)
        end
+@@ -254,7 +332,7 @@ end
+ local HELP = [[
+ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+   zoom-in (focused window becomes the top of the view) | zoom-step (one level) | zoom-out
+-  zoom-root | zoom-desktop | zoom <node-id|address>
++  zoom-root | zoom-desktop | zoom <node-id|address> | zoom-at <x> <y> (the window under a point)
+   show <id> <id>...          view exactly these tiles (viewport = their common ancestor, rest hidden)
+   hide [id] | unhide <id>    drop / bring back one tile in the current view
+   show-all | hidden          clear the selection / list hidden tiles
 @@ -263,8 +341,15 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
    split row|column|tabs      wrap the focused window so the next one opens beside it
    layout row|column|tabs|next  change the container around the focused window
@@ -148,7 +157,30 @@ index f4f204f..8fceb7b 100644
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -346,6 +431,37 @@ local function handle(tree, msg)
+@@ -287,6 +372,22 @@ local function handle(tree, msg)
+     return where(tree)
+   elseif cmd == "zoom-desktop" then
+     return T.zoom_desktop(tree) and where(tree) or "no desktop node (fractal desktop on)"
++  elseif cmd == "zoom-at" then
++    -- zoom-at <x> <y>: zoom into the window under that point (the zoom gestures pass the pointer
++    -- position, so they act on the app under the pointer, focused or not: no focus change, and so no
++    -- cursor warp); falls back to a plain zoom-in when no window is there.
++    local x, y = tonumber(words[2]), tonumber(words[3])
++    if not (x and y) then return "usage: zoom-at <x> <y>" end
++    local hit
++    local nodes = tree.geometry and tree.geometry.nodes
++    if nodes then
++      for _, leaf in ipairs(T.windows(tree.viewport)) do
++        local b = nodes[leaf.id]
++        if b and x >= b.x and x < b.x + b.w and y >= b.y and y < b.y + b.h then hit = leaf break end
++      end
++    end
++    if hit then T.zoom_to(tree, hit) else T.zoom_in(tree) end
++    return where(tree)
+   elseif cmd == "zoom" then
+     local node = arg and (T.find(tree, arg) or T.find_window(tree, arg))
+     if not node then return "no such node: " .. tostring(arg) end
+@@ -346,6 +447,37 @@ local function handle(tree, msg)
      local dir = DIRS[(arg or ""):lower()]
      if not dir then return "usage: move left|right|up|down" end
      return T.move(tree, dir) and ("moved " .. dir) or "can't move that way"
@@ -186,7 +218,7 @@ index f4f204f..8fceb7b 100644
    elseif cmd == "tab" then
      local delta = (arg == "prev" or arg == "previous") and -1 or 1
      return T.tab_cycle(tree, delta) and "tab switched" or "no tabs container in view"
-@@ -353,6 +469,10 @@ local function handle(tree, msg)
+@@ -353,6 +485,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -197,7 +229,7 @@ index f4f204f..8fceb7b 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -377,12 +497,44 @@ end
+@@ -377,12 +513,44 @@ end
  
  -- --------------------------------------------------------------- provider --
  
@@ -243,7 +275,7 @@ index f4f204f..8fceb7b 100644
      refresh_focus(tree)
      apply(tree, ctx)
      save(ws, tree)
-@@ -402,12 +554,12 @@ function M.layout_msg(ctx, msg)
+@@ -402,12 +570,12 @@ function M.layout_msg(ctx, msg)
        tree = T.new({ desktop = M.desktop })
        M.trees[ws] = tree
      end
@@ -258,7 +290,7 @@ index f4f204f..8fceb7b 100644
      write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
-@@ -430,7 +582,7 @@ function M.setup(opts)
+@@ -430,7 +598,7 @@ function M.setup(opts)
    M.name = opts.name or "fractal"
    M.desktop = opts.desktop == true
    M.notify = opts.notify ~= false
@@ -695,10 +727,10 @@ index 7dae2d2..82e6a02 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..d5564d2 100644
+index e2ae2ae..2e139df 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,178 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,196 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -873,6 +905,24 @@ index e2ae2ae..d5564d2 100644
 +  provider.layout_msg(ctx_for({ A, C }), "drag-release 0xb")
 +  eq(reply(), "nothing to release")
 +  hl.get_window = real_get
++end)
++
++test("zoom-at zooms into the window under a point, falling back to zoom-in", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)                                    -- a | (b / c) in 1200x800
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-at 900 600")  -- inside c (bottom right)
++  local tree = _G.__fractal.impl.trees["9"]
++  eq(tree.viewport.address, "0xc", "zoomed into the window under the point")
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-root")
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-at 100 400")  -- inside a
++  eq(_G.__fractal.impl.trees["9"].viewport.address, "0xa")
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-root")
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-at 5000 5000") -- nothing there: plain zoom-in on the focused window
++  assert(reply():find("viewport"), reply())
++  provider.layout_msg(ctx_for({ A, B, C }), "zoom-at x y")
++  eq(reply():match("^usage"), "usage")
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))

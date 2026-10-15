@@ -43,7 +43,14 @@ test("3-finger swipe up/down zoom, 4-finger vertical toggles the special workspa
   by["3up"].action()
   by["3down"].action()
   by["2upSUPER"].action()
-  eq(table.concat(env.dispatched, ","), "layout:zoom-in,layout:zoom-out,layout:zoom-in", "zoom actions send the layout commands via hl.dispatch")
+  eq(table.concat(env.dispatched, ","), "layout:zoom-in,layout:zoom-out,layout:zoom-in", "without a pointer position, zoom-in falls back to the plain command")
+  env.dispatched = {}
+  hl.get_cursor_pos = function() return { x = 640.4, y = 360 } end
+  by["3up"].action()
+  by["3down"].action()
+  by["2upSUPER"].action()
+  eq(table.concat(env.dispatched, ","), "layout:zoom-at 640 360,layout:zoom-out,layout:zoom-at 640 360", "zoom-in zooms into the window under the pointer")
+  hl.get_cursor_pos = nil
   eq(by["3up"].mods, nil, "the plain 3-finger gesture has no modifier")
   for _, s in ipairs(env.specs) do assert(s.fingers ~= 5, "nothing on five fingers") end
   for _, s in ipairs(env.specs) do assert(s.direction ~= "left" and s.direction ~= "right" and s.direction ~= "horizontal", "no horizontal swipes by default") end
