@@ -67,12 +67,26 @@ ShellRoot {
             Quickshell.execDetached(["hyprctl", "eval", tileRule]);
     }
 
+    // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (after a
+    // beat, so the window is mapped), in case the window rule above is not honoured.
+    function untile(address: string): void {
+        const lua = 'pcall(function() hl.dispatch(hl.dsp.window.float({ action = "off", window = "address:0x' + address + '" })) end)';
+        Quickshell.execDetached(["sh", "-c", "sleep 0.15; hyprctl eval '" + lua + "'; sleep 0.4; hyprctl eval '" + lua + "'"]);
+    }
+
     Connections {
         target: Hyprland
 
         function onRawEvent(event): void {
             if (event.name === "configreloaded")
                 root.applyTileRule();
+            // openwindow>>ADDRESS,WORKSPACE,CLASS,TITLE (the title may itself contain commas).
+            if (event.name === "openwindow" && root.tile) {
+                const parts = String(event.data).split(",");
+                const title = parts.slice(3).join(",");
+                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0)
+                    root.untile(parts[0]);
+            }
         }
     }
 

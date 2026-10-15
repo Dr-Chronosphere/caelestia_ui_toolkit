@@ -79,7 +79,7 @@ become one window with both windows' tabs (each tab keeps its folder and back/fo
 
 Quickshell windows open floating on Hyprland. At startup the app registers a window rule (through
 `hyprctl eval`) that tiles windows titled `Files #…`, and re-registers it after a config reload.
-`FILES_TILE=off` skips that. If your Hyprland rejects the rule or ignores it, put the equivalent in
+It also un-floats each explorer window as it opens (`hl.dsp.window.float({ action = "off", ... })`, the same call form your Caelestia config uses), in case the rule isn't honoured. `FILES_TILE=off` skips both. If your Hyprland rejects the rule or ignores it, put the equivalent in
 your own config, for example `hl.window_rule({ match = { title = "^Files #" }, tile = true })`.
 To see what Hyprland thinks of the window:
 `hyprctl clients -j | jq '.[] | select(.title | startswith("Files #")) | {class, title, floating}'`.
