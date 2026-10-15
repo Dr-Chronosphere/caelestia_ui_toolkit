@@ -103,6 +103,27 @@ ShellRoot {
         Quickshell.execDetached(["sh", "-c", script]);
     }
 
+    // The same, by title instead of address, for windows whose open event was missed: the app's
+    // connection to Hyprland's event stream can come up AFTER the first window has opened (a race
+    // seen in tile.log: "app started" with no window event after it). Run when a window is created.
+    function untileAll(): void {
+        const script = 'log="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia-files/tile.log"; mkdir -p "$(dirname "$log")"; '
+            + 'export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"; '
+            + 'if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr" 2>/dev/null | head -1); fi; '
+            + 'command -v jq >/dev/null 2>&1 || { echo "$(date +%T) scan: jq not found" >> "$log"; exit 0; }; '
+            + 'seen=0; clean=0; i=0; '
+            + 'while [ $i -lt 20 ] && [ $clean -lt 3 ]; do '
+            + 'out=$(hyprctl clients -j 2>>"$log" | jq -r \'[.[] | select(.title | startswith("Files #"))] | "\\(length) " + ([.[] | select(.floating) | .address] | join(" "))\' 2>>"$log"); '
+            + 'set -- $out; n=${1:-0}; [ $# -gt 0 ] && shift; '
+            + 'if [ "$n" -gt 0 ]; then seen=1; fi; '
+            + 'if [ $# -gt 0 ]; then '
+            + 'for a in "$@"; do echo "$(date +%T) scan: $a is floating, un-floating" >> "$log"; hyprctl eval "pcall(function() hl.dispatch(hl.dsp.window.float({ action = \\"off\\", window = \\"address:$a\\" })) end)" >>"$log" 2>&1; done; clean=0; '
+            + 'elif [ $seen -eq 1 ]; then clean=$((clean+1)); fi; '
+            + 'i=$((i+1)); sleep 0.2; done; '
+            + 'echo "$(date +%T) scan: done (seen=$seen)" >> "$log"';
+        Quickshell.execDetached(["sh", "-c", script]);
+    }
+
     Connections {
         target: Hyprland
 
@@ -187,6 +208,7 @@ ShellRoot {
             readonly property var rec: root.model.windows[root.model.winIndex(modelData)]
 
             color: "transparent"
+            Component.onCompleted: if (root.tile) root.untileAll()
             title: "Files #" + modelData + " — " + tabs.activeLabel
             implicitWidth: 960
             implicitHeight: 680

@@ -88,3 +88,7 @@ Windows already open when the rule is added stay floating; close and reopen them
 The un-float step logs what it sees to `~/.local/state/caelestia-files/tile.log` (the Hyprland
 instance signature, whether `jq` and `hyprctl` were found, and each floating/tiled reading), so you
 can see why a window stayed floating when it was started from a keybind or launcher.
+
+`tile.log` also shows the title-based scan that runs whenever a window is created (`scan: …`): the
+event-driven un-float depends on the app's connection to Hyprland's event stream, which can come up
+after the first window opens, so the scan finds explorer windows by title instead.
