@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..6f8a47a 100644
+index f4f204f..1f8f919 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -59,15 +59,43 @@ index f4f204f..6f8a47a 100644
    local pw, ph = math.max(200, math.floor(area.w / 3)), math.max(150, math.floor(area.h / 3))
    -- Remember each window's last visible box: a parked window keeps that size,
    -- so its app does not reflow and the map's thumbnail still shows it as it was.
-@@ -265,6 +299,7 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+@@ -263,8 +297,11 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+   split row|column|tabs      wrap the focused window so the next one opens beside it
+   layout row|column|tabs|next  change the container around the focused window
    move left|right|up|down    move the focused window, i3-style
++  place <src> <dst> <zone>   move window src beside dst (left|right|up|down), or swap (center)
++  drop-intent <src> <dst> <zone> | clear   where src goes when the compositor re-tiles it after a drag
    tab next|prev              cycle a tabs container
    grow | shrink              change the focused window's share
 +  edge <id> <id> <ratio>     move the edge between two adjacent siblings (first gets ratio of their space)
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -353,6 +388,10 @@ local function handle(tree, msg)
+@@ -346,6 +383,23 @@ local function handle(tree, msg)
+     local dir = DIRS[(arg or ""):lower()]
+     if not dir then return "usage: move left|right|up|down" end
+     return T.move(tree, dir) and ("moved " .. dir) or "can't move that way"
++  elseif cmd == "place" then
++    -- place <src-address> <dst-address> <left|right|up|down|center>: move a window next to another
++    -- (center swaps them). Used by the drag overlay.
++    local src, dst, zone = words[2], words[3], (words[4] or ""):lower()
++    if not (src and dst and zone ~= "") then return "usage: place <src> <dst> left|right|up|down|center" end
++    return T.place(tree, src, dst, zone) and ("placed " .. src .. " " .. zone .. " of " .. dst) or "can't place that"
++  elseif cmd == "drop-intent" then
++    -- drop-intent <src> <dst> <zone>: when window <src> is next added (the compositor re-tiles a
++    -- dragged window), put it beside <dst> instead of at the focused tile. `drop-intent clear` cancels.
++    if words[2] == "clear" or not words[2] then
++      T.set_intent(tree, nil)
++      return "intent cleared"
++    end
++    local zone = (words[4] or ""):lower()
++    if not (words[3] and zone ~= "") then return "usage: drop-intent <src> <dst> <zone> | clear" end
++    T.set_intent(tree, { src = words[2], dst = words[3], zone = zone })
++    return "intent set"
+   elseif cmd == "tab" then
+     local delta = (arg == "prev" or arg == "previous") and -1 or 1
+     return T.tab_cycle(tree, delta) and "tab switched" or "no tabs container in view"
+@@ -353,6 +407,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -78,7 +106,7 @@ index f4f204f..6f8a47a 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -407,7 +446,7 @@ function M.layout_msg(ctx, msg)
+@@ -407,7 +465,7 @@ function M.layout_msg(ctx, msg)
      local before = tree.focused
      reply = handle(tree, msg)
      apply(tree, ctx)
@@ -88,10 +116,127 @@ index f4f204f..6f8a47a 100644
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
-index 7dae2d2..5095e93 100644
+index 7dae2d2..61e186f 100644
 --- a/lua/fractal_tree.lua
 +++ b/lua/fractal_tree.lua
-@@ -708,19 +708,55 @@ function T.resize(tree, factor)
+@@ -262,6 +262,98 @@ local function detach(tree, node)
+   end
+ end
+ 
++-- Put `leaf` (already detached) beside `dst` on side `zone` (left|right|up|down|top|bottom), or
++-- swap it with `dst` (center). left/right want a row, up/down a column. If dst's parent already
++-- runs that way the leaf joins it next to dst; otherwise dst is wrapped in a new container.
++local ZONE_KIND = { left = "row", right = "row", up = "column", top = "column", down = "column", bottom = "column" }
++local ZONE_AFTER = { right = true, down = true, bottom = true }
++
++local function insert_beside(tree, leaf, dst, zone)
++  local kind = ZONE_KIND[zone]
++  local parent = dst.parent
++  if parent and (parent.kind == kind or (parent.kind == "tabs" and kind == "row")) and parent.kind ~= "tabs" then
++    local idx = index_of(parent, dst)
++    add(parent, leaf, ZONE_AFTER[zone] and idx + 1 or idx)
++  elseif parent == tree.root and #parent.children == 1 then
++    parent.kind = kind
++    add(parent, leaf, ZONE_AFTER[zone] and nil or 1)
++  else
++    local container = wrap(tree, dst, kind)
++    if ZONE_AFTER[zone] then add(container, leaf) else add(container, leaf, 1) end
++    if tree.viewport == dst then tree.viewport = container end
++  end
++end
++
++-- A root whose only child is a container is that container: hoist its children (keeps the tree
++-- from growing a redundant level after windows are moved out of it).
++local function flatten_root(tree)
++  local root = tree.root
++  while #root.children == 1 and is_container(root.children[1]) do
++    local only = root.children[1]
++    remove(root, only)
++    root.kind = only.kind
++    root.active = only.active
++    for _, c in ipairs({ table.unpack(only.children) }) do
++      remove(only, c)
++      add(root, c)
++    end
++    if tree.viewport == only then tree.viewport = root end
++    for k, v in pairs(tree.framings) do if v.node == only.id then v.node = root.id end end
++  end
++end
++
++-- Move window `src` next to window `dst` (zone left|right|up|down), or swap their places
++-- (zone center). Returns true when the tree changed.
++function T.place(tree, src, dst, zone)
++  if src == dst then return false end
++  local a, b = T.find_window(tree, src), T.find_window(tree, dst)
++  if not a or not b then return false end
++  if zone == "center" or zone == "swap" then
++    local pa, pb = a.parent, b.parent
++    local ia, ib = index_of(pa, a), index_of(pb, b)
++    local wa, wb = a.weight, b.weight
++    if pa == pb then
++      pa.children[ia], pa.children[ib] = b, a
++    else
++      pa.children[ia], pb.children[ib] = b, a
++      a.parent, b.parent = pb, pa
++    end
++    a.weight, b.weight = wb, wa
++    tree.focused = src
++    return true
++  end
++  if not ZONE_KIND[zone] then return false end
++  -- detach the leaf without losing its identity, then re-insert beside dst (which survives the
++  -- collapse of the leaf's old parent)
++  local parent = a.parent
++  remove(parent, a)
++  if tree.viewport == a then tree.viewport = parent end
++  collapse(tree, parent)
++  a.weight = 1.0
++  insert_beside(tree, a, b, zone)
++  flatten_root(tree)
++  tree.focused = src
++  return true
++end
++
++-- Remember where the next window with this address should land: the layout re-adds a window the
++-- compositor re-tiled after a drag, and this is how a drop target chosen elsewhere (the overlay)
++-- decides where it goes. Cleared by `T.set_intent(tree, nil)`, on use, and after `ttl` seconds.
++function T.set_intent(tree, intent)
++  tree.intent = intent
++  if intent then intent.at = os.time() end
++end
++
++local function take_intent(tree, address)
++  local it = tree.intent
++  if not it or it.src ~= address then return nil end
++  tree.intent = nil
++  if os.time() - (it.at or 0) > (it.ttl or 20) then return nil end
++  local dst = T.find_window(tree, it.dst)
++  if not dst then return nil end
++  return dst, it.zone
++end
++
+ -- A new window splits the focused tile along its larger dimension (dwindle
+ -- style): the focused leaf is wrapped in a row (wider) or column (taller) and
+ -- the newcomer takes the second half. Every insert therefore adds a level, so
+@@ -274,6 +366,17 @@ function T.add_window(tree, address, label, area)
+     return existing
+   end
+   local leaf = T.node(tree, "window", { address = address, label = label or "" })
++  local idst, izone = take_intent(tree, address)
++  if idst and (izone == "center" or izone == "swap") then
++    -- a swap has nothing to insert: put the leaf where dst is and send dst to the leaf's usual spot
++    izone = "right"
++  end
++  if idst and ZONE_KIND[izone] then
++    insert_beside(tree, leaf, idst, izone)
++    flatten_root(tree)
++    tree.focused = address
++    return leaf
++  end
+   local target = focused_in_view(tree)
+   if not target or target.kind ~= "window" then
+     if not is_container(tree.viewport) then
+@@ -708,19 +811,55 @@ function T.resize(tree, factor)
    return leaf
  end
  
@@ -149,7 +294,7 @@ index 7dae2d2..5095e93 100644
      if node.kind == "tabs" then
        local c = active_child(node)
        if c and not has_visible(tree, c) then
-@@ -884,6 +920,8 @@ local function json_node(n, tree, f, names)
+@@ -884,6 +1023,8 @@ local function json_node(n, tree, f, names)
      '"focused":' .. tostring(n == f),
      '"visible":' .. tostring(T.is_visible(tree, n) or (is_container(n) and contains(tree.viewport, n) and has_visible(tree, n))),
    }
@@ -158,7 +303,7 @@ index 7dae2d2..5095e93 100644
    if n.address then parts[#parts + 1] = '"address":' .. json_str(n.address) end
    if n.title then parts[#parts + 1] = '"title":' .. json_str(n.title) end
    if names[n.id] then parts[#parts + 1] = '"framing":' .. json_str(names[n.id]) end
-@@ -921,6 +959,10 @@ function T.to_json(tree, extra)
+@@ -921,6 +1062,10 @@ function T.to_json(tree, extra)
      '"canForward":' .. tostring(#tree.forward > 0),
      '"tree":' .. json_node(tree.root, tree, f, names),
    }
@@ -170,10 +315,10 @@ index 7dae2d2..5095e93 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..f6b7a27 100644
+index e2ae2ae..7546b1b 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,56 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,84 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -228,13 +373,41 @@ index e2ae2ae..f6b7a27 100644
 +  eq(slurp(state_path) ~= after1, true, "second drag persisted too (a new timer was scheduled)")
 +end)
 +
++test("place and drop-intent commands move windows and persist in the status file", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)                                  -- a | (b / c)
++  provider.layout_msg(ctx_for({ A, B, C }), "place 0xc 0xa left")
++  eq(reply(), "placed 0xc left of 0xa")
++  local f = io.open(root .. "/run/fractal-wm/ws-9.json")
++  local json = f:read("a")
++  f:close()
++  eq(json:find('"address":"0xc"', 1, true) < json:find('"address":"0xa"', 1, true), true, "c now comes before a in the status")
++  provider.layout_msg(ctx_for({ A, B, C }), "place 0xc 0xnope left")
++  eq(reply(), "can't place that")
++  provider.layout_msg(ctx_for({ A, B, C }), "place 0xc")
++  eq(reply():match("^usage"), "usage")
++  -- drag: b is floated out, then re-tiled with an intent to land right of a
++  provider.layout_msg(ctx_for({ A, B, C }), "drop-intent 0xb 0xa right")
++  eq(reply(), "intent set")
++  provider.recalculate(ctx_for({ A, C }))                     -- b gone (dragged)
++  provider.recalculate(ctx_for({ A, B, C }))                  -- b back: placed by the intent
++  local tree = _G.__fractal.impl.trees["9"]
++  local order = {}
++  for _, leaf in ipairs(require("hypr.fractal_tree").windows(tree.root)) do order[#order + 1] = leaf.address end
++  eq(table.concat(order, ","), "0xc,0xa,0xb", "b went right of a")
++  provider.layout_msg(ctx_for({ A, B, C }), "drop-intent clear")
++  eq(reply(), "intent cleared")
++end)
++
  print(string.format("%d passed, %d failed", passed, failed))
  os.exit(failed == 0 and 0 or 1)
 diff --git a/tests/test_tree.lua b/tests/test_tree.lua
-index 880b759..3b5c7ce 100644
+index 880b759..8583671 100644
 --- a/tests/test_tree.lua
 +++ b/tests/test_tree.lua
-@@ -399,5 +399,79 @@ test("tabs with a hidden active child fall back to a visible one", function()
+@@ -399,5 +399,158 @@ test("tabs with a hidden active child fall back to a visible one", function()
    eq(keys(T.layout(t, AREA)), "a,c")
  end)
  
@@ -310,6 +483,85 @@ index 880b759..3b5c7ce 100644
 +  local j = T.to_json(t)
 +  eq(j:find('"area":{"x":0.0,"y":0.0,"w":1368.0,"h":886.0}', 1, true) ~= nil, true, "area")
 +  eq(j:find('"box":{"x":684.0,"y":0.0,"w":684.0,"h":886.0}', 1, true) ~= nil, true, "window box")
++end)
++
++-- ------------------------------------------------------------ place / drop intent --
++
++test("place moves a window beside another: a | (b / c), c left of a", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  T.set_focus(t, "b")
++  T.add_window(t, "c", "C", WIDE)            -- a | (b / c)
++  eq(T.place(t, "c", "a", "left"), true)
++  eq(addrs(t.root), "c,a,b", "c joins the root row; the column around b collapsed")
++  eq(t.focused, "c")
++end)
++
++test("place beside a window whose parent runs the same way joins that row, and the root is flattened", function()
++  local t = T.new()
++  make(t, "a", "b", "c")                      -- a | (b | c) built without an area
++  eq(T.place(t, "a", "c", "right"), true)
++  eq(addrs(t.root), "b,c,a", "no redundant single-child level is left at the root")
++  eq(T.place(t, "a", "b", "left"), true)
++  eq(addrs(t.root), "a,b,c")
++end)
++
++test("place up/down wraps the target in a column", function()
++  local t = T.new()
++  make(t, "a", "b")
++  eq(T.place(t, "b", "a", "up"), true)
++  eq(t.root.kind, "column")
++  eq(addrs(t.root), "b,a")
++  eq(T.place(t, "b", "a", "down"), true)
++  eq(addrs(t.root), "a,b")
++end)
++
++test("center swaps two windows, even across containers", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  T.set_focus(t, "b")
++  T.add_window(t, "c", "C", WIDE)            -- a | (b / c)
++  eq(T.place(t, "a", "c", "center"), true)
++  eq(addrs(t.root), "c,column", "c where a was, a where c was")
++  eq(addrs(t.root.children[2]), "b,a")
++  eq(T.find_window(t, "a").parent, t.root.children[2], "parent links follow")
++end)
++
++test("place rejects unknown windows, itself and bad zones", function()
++  local t = T.new()
++  make(t, "a", "b")
++  eq(T.place(t, "a", "a", "left"), false)
++  eq(T.place(t, "a", "zz", "left"), false)
++  eq(T.place(t, "a", "b", "sideways"), false)
++  eq(addrs(t.root), "a,b", "tree untouched")
++end)
++
++test("drop intent: the re-added window lands where the drop was aimed, not at the focus", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  T.remove_window(t, "a")                    -- dragged out (floating)
++  T.set_intent(t, { src = "a", dst = "b", zone = "left" })
++  T.add_window(t, "a", "A", WIDE)            -- re-tiled after the drop
++  eq(addrs(t.root), "a,b,c")
++  eq(t.intent, nil, "used up")
++  eq(t.focused, "a")
++end)
++
++test("an intent for another window, an expired one, or a vanished target is ignored", function()
++  local t = T.new()
++  make(t, "a", "b")
++  T.set_intent(t, { src = "x", dst = "a", zone = "left" })
++  T.add_window(t, "y", "Y", WIDE)
++  assert(t.intent ~= nil, "kept for its own window")
++  t.intent = { src = "z", dst = "a", zone = "left", at = os.time() - 100 }
++  T.add_window(t, "z", "Z", WIDE)
++  eq(t.intent, nil, "expired intents are dropped")
++  eq(T.find_window(t, "z") ~= nil, true, "the window is still added normally")
++  t.intent = { src = "w", dst = "gone", zone = "left", at = os.time() }
++  T.add_window(t, "w", "W", WIDE)
++  eq(T.find_window(t, "w") ~= nil, true, "target gone: falls back to the normal split")
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))
