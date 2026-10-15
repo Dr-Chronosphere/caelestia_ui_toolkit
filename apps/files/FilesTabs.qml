@@ -27,6 +27,12 @@ Rectangle {
     signal activateTabRequested(string id)
     signal moveTabRequested(string id, int to)
     signal tearTabRequested(string id)
+    // While a tab is being torn out: where the pointer is (window coordinates) and a picture of the
+    // tab, so the host can draw the miniature in a surface that may leave this window.
+    signal tearUpdated(var info)
+    // Draw the miniature inside this window too (a host with its own overlay turns this off).
+    property bool localGhost: true
+    property url tearPicture
     signal stateUpdated(string id, var snapshot)
     signal openRequested(string path)
 
@@ -44,6 +50,44 @@ Rectangle {
     }
 
     readonly property alias tabBar: bar
+
+    function publishTear(): void {
+        tearUpdated({
+            "on": bar.tearing,
+            "x": bar.dragX,
+            "y": bar.dragY,
+            "label": activeLabel,
+            "picture": String(tearPicture),
+            "w": ghost.miniW,
+            "h": ghost.miniH
+        });
+    }
+
+    Connections {
+        target: bar
+
+        function onTearingChanged(): void {
+            if (bar.tearing) {
+                const v = root.viewFor(bar.dragTabId);
+                if (v)
+                    v.grabToImage(r => {
+                        root.tearPicture = r.url;
+                        root.publishTear();
+                    }, Qt.size(Math.round(ghost.miniW * 2), Math.round(ghost.miniH * 2)));
+            } else {
+                root.tearPicture = "";
+            }
+            root.publishTear();
+        }
+        function onDragXChanged(): void {
+            if (bar.tearing)
+                root.publishTear();
+        }
+        function onDragYChanged(): void {
+            if (bar.tearing)
+                root.publishTear();
+        }
+    }
 
     function viewFor(id: string): var {
         for (let i = 0; i < views.count; i++) {
@@ -227,7 +271,7 @@ Rectangle {
         }
 
         z: 100
-        visible: grow > 0.001
+        visible: root.localGhost && grow > 0.001
         width: bar.chipWidth + (miniW - bar.chipWidth) * grow
         height: 34 + (miniH - 34) * grow
         x: bar.dragX - width / 2

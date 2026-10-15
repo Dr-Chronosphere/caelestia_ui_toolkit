@@ -45,13 +45,14 @@ renderer (the GPU mask path is untested), and nothing has been run in a live Qui
 Every explorer window has tabs (`Ctrl+T` new, `Ctrl+W` close, `Ctrl+Tab` / `Ctrl+Shift+Tab` cycle,
 `Ctrl+Shift+PgUp/PgDn` move the tab left/right, middle-click a tab to close it). **Drag a tab sideways
 to reorder it, or drag it off the strip (down or up, about 44 px) to tear it out into a window of its
-own**; once it is far enough off the strip the chip turns into a miniature of the tab's window that follows the pointer (a live picture of the tab on GPU renderers, a name card otherwise), so you can see what you're carrying. Grabbing a tab also activates it. A window's only tab can't be torn out.. Run `bin/caelestia-files [path]` again and it opens another window
+own**; once it is far enough off the strip the chip turns into a miniature of the tab's window that follows the pointer (a snapshot of the tab, drawn in its own overlay surface so it can leave the window; it falls back to a name card if the snapshot isn't ready), so you can see what you're carrying. Grabbing a tab also activates it. A window's only tab can't be torn out.. Run `bin/caelestia-files [path]` again and it opens another window
 in the running instance (`--tab [path]` opens a tab in the newest window instead).
 
 **Drag one explorer window over another** (Super+drag, or however you move windows) and the window
 underneath blurs and offers to take the tabs; leave it there for about half a second and the two
 become one window with both windows' tabs (each tab keeps its folder and back/forward history).
 
+- **Release or pause.** A tiled window is floated while you carry it and re-tiled the instant you let go, so the merge fires on *release*: letting go while the carried window's centre is over another explorer window (it counts if that was true in the last ~0.9 s). A floating window, which stays where you leave it, merges after the pause below.
 - The compositor moves the window, so the app can't see the pointer. It samples window geometry
   (`hyprctl clients -j`, every 70 ms, only while two or more explorer windows exist) and decides a
   window is "carried" when its position changes without its size changing, and "over" another when

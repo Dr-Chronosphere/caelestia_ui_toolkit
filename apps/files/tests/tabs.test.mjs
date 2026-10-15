@@ -88,6 +88,32 @@ const s = plain(M.samples(JSON.stringify([
   { title: "Files #1 — Home", at: [10, 20], size: [300, 200], workspace: { id: 2 }, mapped: true },
   { title: "Files #2 — src", at: [0, 0], size: [1, 1], hidden: true },
   { title: "Terminal", at: [0, 0], size: [5, 5] }])));
-assert.deepEqual(s, [{ id: "1", x: 10, y: 20, w: 300, h: 200, workspace: 2 }]);
+assert.deepEqual(s, [{ id: "1", x: 10, y: 20, w: 300, h: 200, workspace: 2, floating: false }]);
 assert.deepEqual(plain(M.samples("garbage")), []);
+// ---- release over a window (tiled drag: floated while held, re-tiled on release) ----
+{
+  const A2 = { id: "1", x: 0, y: 0, w: 400, h: 300, workspace: 1, floating: false };
+  const B2 = { id: "2", x: 500, y: 0, w: 400, h: 300, workspace: 1, floating: false };
+  const tr = M.create();
+  M.update(tr, [A2, B2], 0);
+  let r = plain(M.update(tr, [A2, { ...B2, x: 300, floating: true }], 50));       // picked up
+  assert.equal(r.dragging, "2");
+  r = plain(M.update(tr, [A2, { ...B2, x: 100, y: 50, floating: true }], 100));    // over A
+  assert.equal(r.target, "1");
+  r = plain(M.update(tr, [A2, { ...B2, floating: false }], 160));                  // let go: re-tiled at once
+  assert.deepEqual(r.drop, { from: "2", to: "1" }, "releasing over a window merges, without waiting for it to settle");
+  // released away from any window: no merge
+  const t2 = M.create();
+  M.update(t2, [A2, B2], 0);
+  M.update(t2, [A2, { ...B2, x: 700, floating: true }], 50);
+  r = plain(M.update(t2, [A2, { ...B2, floating: false }], 100));
+  assert.equal(r.drop, null);
+  // passed over A, then moved on and released elsewhere a while later: not a merge
+  const t3 = M.create();
+  M.update(t3, [A2, B2], 0);
+  M.update(t3, [A2, { ...B2, x: 100, y: 50, floating: true }], 50);
+  M.update(t3, [A2, { ...B2, x: 650, y: 50, floating: true }], 1500);
+  r = plain(M.update(t3, [A2, { ...B2, floating: false }], 1560));
+  assert.equal(r.drop, null, "a target seen long before the release does not count");
+}
 console.log("tabs tests passed");

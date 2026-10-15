@@ -39,21 +39,29 @@ function targetFor(moving, others) {
 }
 
 function create() {
-    return { last: {}, movedAt: {}, dragging: "" };
+    return { last: {}, movedAt: {}, dragging: "", lastTarget: "", lastTargetAt: 0 };
 }
 
-// Feed one sample: wins = [{ id, x, y, w, h, workspace }], now in ms.
+// Feed one sample: wins = [{ id, x, y, w, h, workspace, floating }], now in ms.
 // Returns { dragging, target, drop }: the window being carried ("" if none), the window it is over
-// ("" if none), and, once it has stayed still for `settleMs`, { from, to } to merge (only when it
-// ended over a target). A move is a position change with no size change; resizes are ignored.
+// ("" if none), and { from, to } to merge when it is dropped over a window. A drop is either
+//   - a release: a tiled window is floated for the drag and re-tiled the moment you let go, so the
+//     window going floating -> tiled while it was over a window (within `releaseMs`) is the drop; or
+//   - a pause: a window that has stayed still for `settleMs` over a window (a floating window stays
+//     where you leave it).
+// A move is a position change with no size change; resizes are ignored.
 function update(tr, wins, now, opts) {
     opts = opts || {};
     var settleMs = opts.settleMs === undefined ? 450 : opts.settleMs;
     var minMove = opts.minMove === undefined ? 3 : opts.minMove;
+    var releaseMs = opts.releaseMs === undefined ? 900 : opts.releaseMs;
     var byId = {};
+    var released = "";
     wins.forEach(function (w) {
         byId[w.id] = w;
         var p = tr.last[w.id];
+        if (p && p.floating && !w.floating && tr.dragging === w.id)
+            released = w.id;
         if (p) {
             var resized = Math.abs(p.w - w.w) > 1 || Math.abs(p.h - w.h) > 1;
             var moved = Math.abs(p.x - w.x) >= minMove || Math.abs(p.y - w.y) >= minMove;
@@ -68,7 +76,7 @@ function update(tr, wins, now, opts) {
                     tr.dragging = w.id;
             }
         }
-        tr.last[w.id] = { x: w.x, y: w.y, w: w.w, h: w.h };
+        tr.last[w.id] = { x: w.x, y: w.y, w: w.w, h: w.h, floating: !!w.floating };
     });
     for (var id in tr.last) {
         if (!byId[id]) {
@@ -79,16 +87,30 @@ function update(tr, wins, now, opts) {
         }
     }
     var out = { dragging: tr.dragging, target: "", drop: null };
+    if (released) {
+        // let go: it counts if the window was over another one a moment ago
+        if (tr.lastTarget && now - tr.lastTargetAt <= releaseMs && byId[tr.lastTarget])
+            out.drop = { from: released, to: tr.lastTarget };
+        tr.dragging = "";
+        out.dragging = "";
+        tr.lastTarget = "";
+        return out;
+    }
     if (!tr.dragging)
         return out;
     var m = byId[tr.dragging];
     out.target = targetFor(m, wins);
+    if (out.target) {
+        tr.lastTarget = out.target;
+        tr.lastTargetAt = now;
+    }
     if (now - (tr.movedAt[tr.dragging] || 0) >= settleMs) {
         if (out.target)
             out.drop = { from: tr.dragging, to: out.target };
         tr.dragging = "";
         out.dragging = "";
         out.target = "";
+        tr.lastTarget = "";
     }
     return out;
 }
@@ -114,7 +136,7 @@ function samples(clientsText) {
         var id = idFromTitle(c.title);
         if (!id || c.mapped === false || c.hidden || !c.at || !c.size)
             return;
-        out.push({ id: id, x: c.at[0], y: c.at[1], w: c.size[0], h: c.size[1], workspace: c.workspace ? c.workspace.id : 0 });
+        out.push({ id: id, x: c.at[0], y: c.at[1], w: c.size[0], h: c.size[1], workspace: c.workspace ? c.workspace.id : 0, floating: !!c.floating });
     });
     return out;
 }

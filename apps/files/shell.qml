@@ -38,6 +38,23 @@ ShellRoot {
     readonly property int settleMs: parseInt(Quickshell.env("FILES_MERGE_SETTLE")) || 450
     property var tracker: Merge.create()
 
+    // A tab being torn out: pointer position in that window, plus where the window is on screen.
+    property var tearInfo: ({
+            "on": false
+        })
+    property string tearWin: ""
+    property var tearOrigin: null
+    property var winPos: ({})
+
+    function onTear(winId: string, info: var): void {
+        tearWin = winId;
+        tearInfo = info;
+        if (info.on && !tearOrigin && !locator.running)
+            locator.running = true;
+        if (!info.on)
+            tearOrigin = null;
+    }
+
     function merge(from: string, to: string): void {
         if (model.merge(from, to)) {
             carried = "";
@@ -171,6 +188,94 @@ ShellRoot {
         onTriggered: sampler.running = true
     }
 
+    // Where is the window the tab is being torn from? Asked once per tear.
+    Process {
+        id: locator
+
+        command: ["hyprctl", "clients", "-j"]
+        stdout: StdioCollector {
+            id: located
+
+            waitForEnd: true
+        }
+        onExited: {
+            const w = Merge.samples(String(located.text || "")).find(x => x.id === root.tearWin);
+            if (w)
+                root.tearOrigin = {
+                    "x": w.x,
+                    "y": w.y
+                };
+        }
+    }
+
+    // The miniature of a torn-out tab, drawn in a surface of its own so it can leave the window.
+    // (Namespace has no "caelestia-" prefix: the shell's layer rules blur those.)
+    Variants {
+        model: Quickshell.screens
+
+        delegate: PanelWindow {
+            id: tearWindow
+
+            required property var modelData
+
+            screen: modelData
+            visible: root.tearInfo.on === true && root.tearOrigin !== null
+            anchors {
+                top: true
+                bottom: true
+                left: true
+                right: true
+            }
+            exclusionMode: ExclusionMode.Ignore
+            color: "transparent"
+            mask: Region {}
+            WlrLayershell.namespace: "files-tear"
+            WlrLayershell.layer: WlrLayer.Overlay
+
+            Rectangle {
+                readonly property real gx: (root.tearOrigin ? root.tearOrigin.x : 0) + (root.tearInfo.x || 0) - tearWindow.modelData.x
+                readonly property real gy: (root.tearOrigin ? root.tearOrigin.y : 0) + (root.tearInfo.y || 0) - tearWindow.modelData.y
+
+                width: root.tearInfo.w || 280
+                height: root.tearInfo.h || 180
+                x: gx - width / 2
+                y: gy - 14
+                radius: Theme.rounding.medium
+                color: Theme.palette.m3surfaceContainerHigh
+                border.width: 2
+                border.color: Theme.palette.m3primary
+                opacity: 0.96
+
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    source: root.tearInfo.picture || ""
+                    fillMode: Image.PreserveAspectCrop
+                    smooth: true
+                    visible: status === Image.Ready
+                }
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacing.small
+                    visible: !(root.tearInfo.picture)
+
+                    MaterialIcon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "folder"
+                        iconSize: Theme.iconSize.extraLarge
+                        color: Theme.palette.m3primary
+                    }
+                    StyledText {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: root.tearInfo.label || ""
+                        color: Theme.palette.m3onSurface
+                    }
+                }
+            }
+        }
+    }
+
     Process {
         id: sampler
 
@@ -241,6 +346,8 @@ ShellRoot {
                 states: root.model.states
                 surfaceAlpha: root.surfaceAlpha
                 dropPreview: root.overWindow === win.modelData
+                localGhost: false
+                onTearUpdated: info => root.onTear(win.modelData, info)
                 onNewTabRequested: root.model.addTab(win.modelData, "")
                 onCloseTabRequested: id => root.model.closeTab(win.modelData, id)
                 onActivateTabRequested: id => root.model.activateTab(win.modelData, id)
