@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Mouse/touch edge handles for the fractal-wm layout.
 #
-#   caelestia-fractal-edges [start|stop|restart|doctor|layoutdrop]
+#   caelestia-fractal-edges [start|stop|restart|doctor|layoutdrop|cardmode]
 #
 # Runs as its own background Quickshell instance. Needs the fractal layout with
 # integration/fractal-wm-edge-resize.patch applied.
@@ -55,6 +55,14 @@ doctor() {
 
 case "${1:-start}" in
     doctor) doctor ;;
+    cardmode)
+        # How icon cards are drawn: "window" = real floating windows (the compositor moves them with the
+        # workspace swipe and every animation), "layer" = layer surfaces (default). Takes effect at once.
+        case "${2:-toggle}" in
+            window | layer) exec qs -p "$dir" ipc call fractaledges cardMode "$2" ;;
+            toggle) exec qs -p "$dir" ipc call fractaledges cardModeToggle ;;
+            *) echo "usage: caelestia-fractal-edges cardmode [window|layer|toggle]" >&2; exit 2 ;;
+        esac ;;
     layoutdrop)
         # Let the layout's drag-drop apply to tabbable windows (the file explorer) too: bind `on` to a
         # key press and `off` to its release (a hold), or `toggle` to a key.
@@ -67,5 +75,5 @@ case "${1:-start}" in
     start) exec qs -p "$dir" --no-duplicate --daemonize ;;
     stop) stop ;;
     restart) stop; exec qs -p "$dir" --no-duplicate --daemonize ;;
-    *) echo "usage: caelestia-fractal-edges [start|stop|restart|doctor|layoutdrop]" >&2; exit 2 ;;
+    *) echo "usage: caelestia-fractal-edges [start|stop|restart|doctor|layoutdrop|cardmode]" >&2; exit 2 ;;
 esac

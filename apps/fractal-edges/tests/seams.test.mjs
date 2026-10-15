@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Seams.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,measureInsets,parseRounding,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
+vm.runInContext(src + "\nthis.S={parse,seams,clampRatio,edgeCommand,guideRect,coverTargets,coversEqual,stepCovers,piecesFromCovers,pieces,shiftRects,limits,rubberBand,blockerSpans,guidePieces,layerRuleCommand,measureInsets,parseRounding,isCardWindow,cardWindowAddresses,cardWindowRuleCommand,placeCardsCommand,hasFloating,parseAnimEnabled,animCommand,floatingRects,uncovered,clipRect,clipSeams,guideRects};", ctx);
 const S = ctx.S;
 const plain = v => JSON.parse(JSON.stringify(v));
 const fixture = readFileSync(new URL("./fixture.json", import.meta.url), "utf8");
@@ -286,3 +286,21 @@ const stJ = { area: { x: 0, y: 0, w: 100, h: 100 }, tree: { kind: "split", child
   { kind: "window", address: "0xc", box: { x: 50, y: 90, w: 50, h: 10 } } ] } };
 const clJ = JSON.stringify([{ address: "0xa", at: [10, 10], size: [35, 80] }, { address: "0xb", at: [55, 10], size: [35, 80] }, { address: "0xc", at: [55, 90], size: [200, 200] }]);
 assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clJ, stJ))), { inner: 5, edge: 10 });
+// ---- icon cards as real windows ----
+{
+  const cl = JSON.stringify([
+    { address: "0x1", title: "fractal-edges-card k7", floating: true, mapped: true, at: [100, 100], size: [200, 120], monitor: 0, workspace: { id: 1 } },
+    { address: "0x2", title: "Terminal", floating: true, mapped: true, at: [500, 100], size: [300, 200], monitor: 0, workspace: { id: 1 } }]);
+  const mons = JSON.stringify([{ id: 0, name: "eDP-1", activeWorkspace: { id: 1 } }]);
+  const fl = plain(S.floatingRects(cl, mons, "eDP-1", 0));
+  assert.equal(fl.length, 1, "a card window is not an obstacle for the handles");
+  assert.equal(fl[0].address, "0x2");
+  assert.equal(S.hasFloating(JSON.stringify([{ title: "fractal-edges-card k7", floating: true, mapped: true }])), false, "cards alone do not count as floating windows");
+  assert.deepEqual(plain(S.cardWindowAddresses(cl)), { k7: "0x1" });
+  assert.deepEqual(plain(S.cardWindowAddresses("nope")), {});
+  assert.match(S.cardWindowRuleCommand(), /^pcall\(hl\.window_rule, \{ name = "fractal-edges-card-windows", match = \{ title = "\^fractal-edges-card " \}, float = true, no_focus = true/);
+  const cmd = S.placeCardsCommand([{ address: "0xabc", x: 10.4, y: 20, w: 300, h: 150.6 }, { address: "0x1; boom", x: 0, y: 0, w: 1, h: 1 }, { address: "0xdef", x: NaN, y: 0, w: 1, h: 1 }]);
+  assert.match(cmd, /p\("0xabc", 10, 20, 300, 151\)/);
+  assert.ok(!cmd.includes("boom") && !cmd.includes("0xdef"), "unsafe addresses and non-numbers are dropped");
+  assert.equal(S.placeCardsCommand([]), "");
+}

@@ -235,6 +235,7 @@ ShellRoot {
         if (!animProc.running)
             animProc.running = true;
         Quickshell.execDetached(["hyprctl", "eval", Seams.layerRuleCommand()]);
+        Quickshell.execDetached(["hyprctl", "eval", Seams.cardWindowRuleCommand()]);
     }
 
     Component.onCompleted: {
@@ -335,6 +336,15 @@ ShellRoot {
                 root.windowRounding = v;
         }
     }
+
+    // --- icon cards as real windows (opt-in) ---------------------------------------------------------
+    // "layer" (default): cards are one layer surface per screen (the original design). "window": each
+    // card is a floating window that a Hyprland window rule keeps unfocused and undecorated, so the
+    // compositor moves it with the workspace swipe and every animation exactly like the app windows.
+    // FRACTAL_CARD_MODE=window starts in it; `bin/caelestia-fractal-edges cardmode window|layer|toggle`
+    // switches at runtime for quick testing.
+    property string cardMode: Quickshell.env("FRACTAL_CARD_MODE") === "window" ? "window" : "layer"
+    readonly property bool windowCards: cardMode === "window"
 
     // --- the custom workspace swipe (integration/lua/fractal_gestures.lua, swipe_workspaces = true) ---
     // The gesture handler streams the finger motion as `custom` events: "fractal-swipe,start,<dx>,<threshold>",
@@ -644,6 +654,15 @@ ShellRoot {
         function isRunning(): string {
             return "true";
         }
+        // Switch how icon cards are drawn: "window" (real floating windows) or "layer" (layer surfaces).
+        function cardMode(mode: string): void {
+            root.cardMode = mode === "window" ? "window" : "layer";
+            root.dbg("card mode: " + root.cardMode);
+        }
+        function cardModeToggle(): void {
+            root.cardMode = root.windowCards ? "layer" : "window";
+            root.dbg("card mode: " + root.cardMode);
+        }
         // Let the layout drop apply to tabbable windows too (while held / toggled).
         function layoutDrop(on: bool): void {
             root.forceLayout = on;
@@ -677,6 +696,123 @@ ShellRoot {
             readonly property real originY: mon ? (mon.y !== undefined ? mon.y : (mon.lastIpcObject ? mon.lastIpcObject.y : 0)) : 0
 
             property var status: null
+            // --- icon cards as real windows (root.windowCards) ---
+            // Cards of workspaces that are not showing, kept alive so the compositor can slide them away
+            // with their workspace: { workspaceId: { keys, map } }.
+            property var parkedCards: ({})
+            readonly property var windowKeys: {
+                const seen = {};
+                cardKeys.forEach(k => seen[k] = true);
+                for (const w in parkedCards)
+                    parkedCards[w].keys.forEach(k => seen[k] = true);
+                return Object.keys(seen).sort();
+            }
+            property var cardAddr: ({})        // card key -> the Hyprland address of its window
+            property var sentRects: ({})
+            property var placedCards: ({})     // card key -> true once its window has been put in place
+            property string placeLua: ""
+
+            function cardInfo(key: string): var {
+                if (cardMap[key] !== undefined)
+                    return cardMap[key];
+                for (const w in parkedCards) {
+                    const g = parkedCards[w].map[key];
+                    if (g !== undefined)
+                        return g;
+                }
+                return null;
+            }
+
+            function scheduleCardSync(): void {
+                if (root.windowCards)
+                    cardSyncTimer.restart();
+            }
+
+            // Find the card windows (by title) and put each at its card's rectangle. The compositor
+            // animates the move and resize with the same curve as the app window it covers.
+            function placeCards(clientsText: string): void {
+                cardAddr = Seams.cardWindowAddresses(clientsText);
+                const list = [];
+                const placed = Object.assign({}, placedCards);
+                for (const k of windowKeys) {
+                    const g = cardMap[k];
+                    const a = cardAddr[k];
+                    if (!g || !a)
+                        continue;
+                    const r = {
+                        "address": a,
+                        "x": g.x,
+                        "y": g.y,
+                        "w": Math.max(1, g.w),
+                        "h": Math.max(1, g.h)
+                    };
+                    const key = r.x + "," + r.y + "," + r.w + "," + r.h;
+                    if (sentRects[k] !== key) {
+                        sentRects[k] = key;
+                        list.push(r);
+                    }
+                    if (!placed[k])
+                        placedShow.pending[k] = true;
+                }
+                placeLua = Seams.placeCardsCommand(list);
+                if (placeLua !== "")
+                    placeProc.running = true;
+                if (Object.keys(placedShow.pending).length > 0)
+                    placedShow.restart();
+            }
+
+            Timer {
+                id: cardSyncTimer
+
+                interval: 30
+                onTriggered: {
+                    if (!root.windowCards)
+                        return;
+                    if (cardLocate.running)
+                        restart();
+                    else
+                        cardLocate.running = true;
+                }
+            }
+
+            Process {
+                id: cardLocate
+
+                command: ["hyprctl", "clients", "-j"]
+                stdout: StdioCollector {
+                    id: locateOut
+
+                    waitForEnd: true
+                }
+                onExited: scope.placeCards(String(locateOut.text || ""))
+            }
+
+            Process {
+                id: placeProc
+
+                command: ["hyprctl", "eval", scope.placeLua]
+                stdout: StdioCollector {
+                    waitForEnd: true
+                }
+            }
+
+            // A card window shows (fades in) only once it has been moved to its place, so it never
+            // flashes where the compositor first put it.
+            Timer {
+                id: placedShow
+
+                property var pending: ({})
+
+                interval: 160
+                onTriggered: {
+                    const p = Object.assign({}, scope.placedCards);
+                    for (const k in pending)
+                        p[k] = true;
+                    pending = ({});
+                    scope.placedCards = p;
+                }
+            }
+
             // --- following windows through transitions ---
             property var liveRects: ({})
             property bool followOn: false
@@ -691,7 +827,7 @@ ShellRoot {
             readonly property string slideStyle: root.wsAnim ? root.wsAnim.style : "slide"
 
             function startFollow(): void {
-                if (!root.followCards || dragging || sliding)
+                if (!root.followCards || dragging || sliding || root.windowCards)
                     return;
                 followUntil = Date.now() + 1600;
                 followStable = 0;
@@ -811,6 +947,14 @@ ShellRoot {
                     cardKeys = r.keys;
                 }
                 cardMap = r.map;
+                if (root.windowCards) {
+                    if (parkedCards[wsId] && r.keys.length > 0) {
+                        const pk = Object.assign({}, parkedCards);
+                        delete pk[wsId];
+                        parkedCards = pk;
+                    }
+                    scheduleCardSync();
+                }
                 // Not restarted while running, or constant updates would starve the purge.
                 if (r.keys.some(k => r.map[k].leaving) && !leaveTimer.running)
                     leaveTimer.restart();
@@ -1023,7 +1167,22 @@ ShellRoot {
             onWsIdChanged: {
                 // Slide the old workspace's cards out (a snapshot) and the new one's in, with the
                 // workspace animation; otherwise they would pop while the windows slide.
-                if (root.slideCards && root.wsAnim && lastWs > 0 && wsId > 0 && wsId !== lastWs) {
+                if (root.windowCards) {
+                    // Card windows live on their own workspace and are moved by the compositor: keep this
+                    // workspace's cards (parked) instead of destroying them mid-slide.
+                    if (lastWs > 0 && wsId !== lastWs && cardKeys.length > 0) {
+                        const pk = Object.assign({}, parkedCards);
+                        pk[lastWs] = {
+                            "keys": cardKeys,
+                            "map": cardMap
+                        };
+                        parkedCards = pk;
+                    }
+                    cardKeys = [];
+                    cardMap = ({});
+                    cardKeysKey = "";
+                    cardMapKey = "";
+                } else if (root.slideCards && root.wsAnim && lastWs > 0 && wsId > 0 && wsId !== lastWs) {
                     if (cardKeys.length > 0)
                         slideSnap = {
                             "keys": cardKeys,
@@ -1220,6 +1379,49 @@ ShellRoot {
                 };
             }
 
+            // Icon cards as real floating windows (root.windowCards); see the mode notes at the top.
+            Variants {
+                model: root.windowCards ? scope.windowKeys : []
+
+                delegate: FloatingWindow {
+                    id: cw
+
+                    required property string modelData
+
+                    readonly property var geo: scope.cardInfo(modelData)
+                    readonly property bool live: scope.cardMap[modelData] !== undefined
+
+                    title: Seams.CARD_WINDOW_PREFIX + modelData
+                    color: "transparent"
+                    visible: geo !== null && geo !== undefined
+                    implicitWidth: Math.max(1, Math.round(geo ? geo.w : 1))
+                    implicitHeight: Math.max(1, Math.round(geo ? geo.h : 1))
+                    Component.onCompleted: scope.scheduleCardSync()
+
+                    IconCard {
+                        anchors.fill: parent
+                        // Invisible until placed; hidden while its window is carried (a drag) or the
+                        // custom swipe runs; and no alpha games for a card of another workspace.
+                        shown: cw.geo ? !cw.geo.leaving : false
+                        alpha: (cw.geo && scope.placedCards[cw.modelData] && !root.cardsHidden && !(cw.geo.address && root.ddDragging === cw.geo.address)) ? (cw.geo.alpha !== undefined ? cw.geo.alpha : 1) : 0
+                        smooth: cw.geo ? (!!cw.geo.settle || !!cw.geo.leaving) : false
+                        tint: root.translucent ? 0.55 : 1
+                        backdrop: root.wallpaperUrl
+                        backdropX: cw.geo ? Math.max(0, Math.round(cw.geo.x - scope.originX)) : 0
+                        backdropY: cw.geo ? Math.max(0, Math.round(cw.geo.y - scope.originY)) : 0
+                        backdropW: scope.modelData.width
+                        backdropH: scope.modelData.height
+                        blurAmount: root.blurAmount
+                        cornerRadius: root.cardRadius
+                        iconSource: cw.geo ? root.iconFor(cw.geo.label) : ""
+                        label: cw.geo ? cw.geo.label : ""
+                        title: cw.geo ? cw.geo.title : ""
+                        onActivated: if (cw.geo) root.zoomTo(cw.geo.id)
+                        onHovered: if (cw.geo) root.focusWindow(cw.geo.address)
+                    }
+                }
+            }
+
             // Icon cards cover tiles too small to use; tapping one zooms into that window. All of a
             // monitor's cards live in ONE screen-sized surface and are moved/resized as items:
             // resizing a layer surface per card per frame (a configure round-trip each) is what made
@@ -1229,7 +1431,7 @@ ShellRoot {
                 // Kept mapped whenever cards are possible, not only while one exists: opening the
                 // surface, decoding the wallpaper and compiling the blur shaders on the first card
                 // cost 70-95 ms stalls in the profile log. An idle surface is empty and takes no input.
-                visible: root.iconsEnabled && scope.fractalActive && !root.shuttingDown
+                visible: !root.windowCards && root.iconsEnabled && scope.fractalActive && !root.shuttingDown
                 anchors {
                     top: true
                     bottom: true

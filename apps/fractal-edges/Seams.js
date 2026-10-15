@@ -213,6 +213,8 @@ function floatingRects(clientsText, monitorsText, monitorName, pad) {
         var c = clients[j];
         if (!c.floating || c.mapped === false || c.hidden || !c.at || !c.size || c.monitor !== mon.id)
             continue;
+        if (isCardWindow(c))
+            continue;                  // our own icon-card windows are not obstacles
         var wsId = c.workspace ? c.workspace.id : undefined;
         var shown = c.pinned || wsId === activeId || (specialId !== 0 && wsId === specialId);
         if (!shown)
@@ -304,7 +306,7 @@ function hasFloating(clientsText) {
     } catch (e) {
         return false;
     }
-    return Array.isArray(clients) && clients.some(function (c) { return c.floating && c.mapped !== false && !c.hidden; });
+    return Array.isArray(clients) && clients.some(function (c) { return c.floating && c.mapped !== false && !c.hidden && !isCardWindow(c); });
 }
 
 // --- Smooth cuts around floating windows --------------------------------------------------------
@@ -509,4 +511,53 @@ function parseRounding(text) {
     } catch (e) {
         return null;
     }
+}
+
+// Icon cards can be real floating windows (FRACTAL_CARD_MODE=window): Hyprland then moves them with
+// the workspace swipe like any window. They are titled "fractal-edges-card <node id>".
+var CARD_WINDOW_PREFIX = "fractal-edges-card ";
+
+function isCardWindow(client) {
+    return !!client && String(client.title || "").indexOf(CARD_WINDOW_PREFIX) === 0;
+}
+
+// Card windows of `clientsText` as { nodeId: address }.
+function cardWindowAddresses(clientsText) {
+    var clients;
+    try {
+        clients = JSON.parse(clientsText);
+    } catch (e) {
+        return {};
+    }
+    var out = {};
+    if (!Array.isArray(clients))
+        return out;
+    clients.forEach(function (c) {
+        if (c && c.address && isCardWindow(c))
+            out[String(c.title).slice(CARD_WINDOW_PREFIX.length)] = c.address;
+    });
+    return out;
+}
+
+// Window rule for the card windows (through `hyprctl eval`, in a pcall): floating, never focused,
+// no border/shadow/blur/dimming, so the window is just the card's own pixels.
+function cardWindowRuleCommand() {
+    return 'pcall(hl.window_rule, { name = "fractal-edges-card-windows", match = { title = "^fractal-edges-card " }, float = true, no_focus = true, no_initial_focus = true, no_follow_mouse = true, no_shadow = true, no_blur = true, no_dim = true, decorate = false, border_size = 0, rounding = 0 })';
+}
+
+// Lua that places card windows: [{ address, x, y, w, h }] -> resize then move each (absolute).
+// Addresses are checked (hex) so nothing else can end up in the command.
+function placeCardsCommand(list) {
+    var parts = [];
+    list.forEach(function (c) {
+        if (!/^0x[0-9a-f]+$/i.test(String(c.address)))
+            return;
+        var n = [c.x, c.y, c.w, c.h].map(function (v) { return Math.round(Number(v)); });
+        if (n.some(function (v) { return !isFinite(v); }))
+            return;
+        parts.push('p("' + c.address + '", ' + n.join(", ") + ')');
+    });
+    if (!parts.length)
+        return "";
+    return 'local function p(a, x, y, w, h) pcall(function() hl.dispatch(hl.dsp.window.resize({ window = "address:" .. a, x = w, y = h })); hl.dispatch(hl.dsp.window.move({ window = "address:" .. a, x = x, y = y, relative = false })) end) end; ' + parts.join("; ");
 }

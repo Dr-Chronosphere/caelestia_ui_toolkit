@@ -321,3 +321,30 @@ past the threshold the workspace changes with Hyprland's normal workspace animat
 you swipe right, next when you swipe left), and the cards return after the slide. The windows
 themselves do **not** follow the fingers: Lua can't offset a workspace.
 `FRACTAL_EDGE_DEBUG=1` logs the `swipe …` events.
+
+## Icon cards as real windows (opt-in): `FRACTAL_CARD_MODE=window`
+
+By default a card is a layer surface, which Hyprland doesn't move with the workspace swipe, so a
+native swipe slides the windows and leaves the cards behind. In window mode each card is a **floating
+window** that a window rule makes undecorated and unfocusable, so the compositor moves it with the
+swipe and with every workspace/zoom animation exactly like the app windows (no events, no slide code).
+
+- Start in it with `FRACTAL_CARD_MODE=window bin/caelestia-fractal-edges restart`, or switch live:
+  `bin/caelestia-fractal-edges cardmode window|layer|toggle` (quick testing; takes effect at once).
+- The overlay registers the rule through `hyprctl eval` (`hl.window_rule`, match
+  `title = "^fractal-edges-card "`, `float`, `no_focus`, `no_initial_focus`, `no_follow_mouse`,
+  `no_shadow`, `no_blur`, `no_dim`, `decorate = false`, `border_size = 0`, `rounding = 0`; all of
+  these are keys from Hyprland's window-rule docs) and again after a config reload.
+- Each card window is positioned and sized with `hl.dsp.window.resize` / `.move` (absolute) through
+  `hyprctl eval`, so Hyprland animates it with the same curve as the window underneath. A card fades
+  in only after it has been placed. Cards of a workspace you have left stay alive (parked) so they
+  slide away with it; they are re-used when you come back.
+- **Side effects to look for:** the card windows are real windows (Caelestia's bar/workspace
+  indicators may count or list them); clicking one relies on `no_focus` still delivering the click
+  (a click zooms into the app through the layout, and hovering focuses the app's window through the
+  layout, so neither needs the window to take focus); a card sits above the app's tiled window but
+  may not be above other floating windows. Absolute `move` coordinates are assumed to be in the
+  same global layout space as the overlay's (single monitor at 0,0 is the safe case).
+- The handles, drop zones and floating-window clipping ignore card windows (title prefix).
+- The window-mode path hides a card while its window is being dragged and during the custom
+  workspace swipe; the layer-mode follow/slide code is not used.
