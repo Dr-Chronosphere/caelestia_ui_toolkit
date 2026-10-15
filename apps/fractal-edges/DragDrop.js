@@ -29,9 +29,14 @@ function inBox(p, b) {
 }
 
 // The drop target under pointer `p`: { address, zone, box } with zone one of
-// left / right / up / down (that edge of the tile) or center (swap), or null when the pointer is
-// over no tile. `skip` is the dragged window's own address.
-function targetAt(p, list, skip) {
+// left / right / up / down, or null when the pointer is over no tile. `skip` is the dragged
+// window's own address.
+// The window goes to the side of the tile the pointer is on: near an edge that edge, and in the
+// middle whichever side the pointer is nearest (the larger offset from the centre decides between
+// left/right and up/down). With opts.swap, the middle of a tile (inside EDGE of every side) is a
+// swap of the two windows instead ("center").
+function targetAt(p, list, skip, opts) {
+    var swap = !!(opts && opts.swap);
     for (var i = 0; i < list.length; i++) {
         var t = list[i];
         if (t.address === skip || !inBox(p, t.box))
@@ -45,6 +50,14 @@ function targetAt(p, list, skip) {
                 bestD = d[k];
             }
         });
+        if (best === "center" && !swap) {
+            // the side the pointer is on: whichever offset from the middle is larger
+            var ox = dx - 0.5, oy = dy - 0.5;
+            if (Math.abs(ox) >= Math.abs(oy))
+                best = ox < 0 ? "left" : "right";
+            else
+                best = oy < 0 ? "up" : "down";
+        }
         return { address: t.address, zone: best, box: t.box };
     }
     return null;

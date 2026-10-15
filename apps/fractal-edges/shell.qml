@@ -329,6 +329,9 @@ ShellRoot {
     // the layout a `drop-intent` so the re-tiled window lands exactly there. FRACTAL_EDGE_DRAG=off
     // disables it.
     readonly property bool dragDrop: Quickshell.env("FRACTAL_EDGE_DRAG") !== "off"
+    // FRACTAL_EDGE_SWAP=1: dropping on the middle of a tile swaps the two windows (default: the window
+    // goes to the half of the tile the pointer is on).
+    readonly property bool dragSwap: Quickshell.env("FRACTAL_EDGE_SWAP") === "1"
     property var ddTracker: DragDrop.create()
     property var tilesByMon: ({})
     property string ddDragging: ""
@@ -386,7 +389,7 @@ ShellRoot {
         }
         let hit = null, mon = "";
         for (const name in tilesByMon) {
-            const t = DragDrop.targetAt(p, tilesByMon[name], r.drag);
+            const t = DragDrop.targetAt(p, tilesByMon[name], r.drag, { "swap": dragSwap });
             if (t) {
                 hit = t;
                 mon = name;

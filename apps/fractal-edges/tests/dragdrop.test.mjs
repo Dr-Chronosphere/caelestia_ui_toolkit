@@ -18,8 +18,17 @@ assert.ok(a.box.w > 0 && c.box.w > 0);
 
 // zones: edges (28%) vs centre
 const mid = { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 };
-let t = plain(D.targetAt(mid, list, ""));
-assert.deepEqual([t.address, t.zone], ["a", "center"]);
+let t = plain(D.targetAt(mid, list, "", { swap: true }));
+assert.deepEqual([t.address, t.zone], ["a", "center"], "with swap enabled the middle swaps");
+// by default there is no swap: the window goes to the side the pointer is on
+const near = (fx, fy) => plain(D.targetAt({ x: a.box.x + a.box.w * fx, y: a.box.y + a.box.h * fy }, list, ""));
+assert.equal(near(0.4, 0.5).zone, "left", "just left of the middle: left half");
+assert.equal(near(0.6, 0.5).zone, "right");
+assert.equal(near(0.5, 0.42).zone, "up");
+assert.equal(near(0.5, 0.6).zone, "down");
+assert.equal(near(0.45, 0.55).zone, "left", "the larger offset from the centre decides");
+assert.equal(near(0.52, 0.65).zone, "down");
+assert.ok(["left", "right", "up", "down"].includes(near(0.5, 0.5).zone), "the exact centre still picks a side");
 t = plain(D.targetAt({ x: a.box.x + 3, y: mid.y }, list, ""));
 assert.deepEqual([t.address, t.zone], ["a", "left"]);
 t = plain(D.targetAt({ x: a.box.x + a.box.w - 3, y: mid.y }, list, ""));
