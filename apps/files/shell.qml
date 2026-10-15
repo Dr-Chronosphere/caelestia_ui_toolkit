@@ -79,12 +79,20 @@ ShellRoot {
         // it; stop once it has read as tiled three times in a row. Without jq it just repeats the
         // command on a schedule (un-floating a tiled window is a no-op).
         const script = 'lua=\'' + lua + '\'; addr=0x' + address + '; ok=0; i=0; '
+            // A window started from a keybind or launcher can lack the environment hyprctl needs
+            // (the instance signature, a PATH with jq): fill both in, and log what happens.
+            + 'log="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia-files/tile.log"; mkdir -p "$(dirname "$log")"; '
+            + 'export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"; '
+            + 'if [ -z "$HYPRLAND_INSTANCE_SIGNATURE" ]; then export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr" 2>/dev/null | head -1); fi; '
+            + 'echo "$(date +%T) window $addr: sig=${HYPRLAND_INSTANCE_SIGNATURE:-none} jq=$(command -v jq || echo none) hyprctl=$(command -v hyprctl || echo none)" >> "$log"; '
             + 'if command -v jq >/dev/null 2>&1; then '
             + 'while [ $i -lt 15 ] && [ $ok -lt 3 ]; do '
-            + 'f=$(hyprctl clients -j | jq -r --arg a "$addr" \'.[] | select(.address == $a) | .floating\'); '
-            + 'if [ "$f" = true ]; then hyprctl eval "$lua" >/dev/null; ok=0; elif [ "$f" = false ]; then ok=$((ok+1)); fi; '
+            + 'f=$(hyprctl clients -j 2>>"$log" | jq -r --arg a "$addr" \'.[] | select(.address == $a) | .floating\' 2>>"$log"); '
+            + 'echo "$(date +%T)   floating=${f:-?}" >> "$log"; '
+            + 'if [ "$f" = true ]; then hyprctl eval "$lua" >>"$log" 2>&1; ok=0; elif [ "$f" = false ]; then ok=$((ok+1)); fi; '
             + 'i=$((i+1)); sleep 0.2; done; '
-            + 'else for d in 0 0.2 0.2 0.4 0.8 1.4; do sleep $d; hyprctl eval "$lua" >/dev/null; done; fi';
+            + 'else for d in 0 0.2 0.2 0.4 0.8 1.4; do sleep $d; hyprctl eval "$lua" >>"$log" 2>&1; done; fi; '
+            + 'echo "$(date +%T)   done" >> "$log"';
         Quickshell.execDetached(["sh", "-c", script]);
     }
 

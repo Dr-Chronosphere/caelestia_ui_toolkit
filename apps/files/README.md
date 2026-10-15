@@ -84,3 +84,7 @@ your own config, for example `hl.window_rule({ match = { title = "^Files #" }, t
 To see what Hyprland thinks of the window:
 `hyprctl clients -j | jq '.[] | select(.title | startswith("Files #")) | {class, title, floating}'`.
 Windows already open when the rule is added stay floating; close and reopen them.
+
+The un-float step logs what it sees to `~/.local/state/caelestia-files/tile.log` (the Hyprland
+instance signature, whether `jq` and `hyprctl` were found, and each floating/tiled reading), so you
+can see why a window stayed floating when it was started from a keybind or launcher.
