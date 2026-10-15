@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..7472fa4 100644
+index f4f204f..ba14be8 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -47,8 +47,47 @@ index f4f204f..7472fa4 100644
  -- ------------------------------------------------------------ hypr glue --
  
  local function tree_for(ws)
-@@ -177,7 +208,10 @@ M.retag = retag
+@@ -175,9 +206,49 @@ local function retag(tree, now_parked, all_addresses)
+ end
+ M.retag = retag
  
++-- The layout of the whole tree (viewport = root, no selection): where every window would sit if the
++-- camera were zoomed all the way out. Gives the box of the current viewport too.
++local function world_layout(tree, area)
++  local vp, mask = tree.viewport, tree.mask
++  tree.viewport, tree.mask = tree.root, nil
++  local nodes = {}
++  local ok, boxes = pcall(T.layout, tree, area, nodes)
++  tree.viewport, tree.mask = vp, mask
++  if not ok then return nil end
++  local vb = (vp.kind == "window" and boxes[vp.address]) or nodes[vp.id]
++  return boxes, vb
++end
++
++local function intersects(a, b)
++  return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y
++end
++
++-- Where a parked window goes under the "camera" parking: the screen position it would have if the
++-- view were a camera zoomed onto the viewport (the world scaled so the viewport fills the work
++-- area), then slid to just beyond the nearest screen edge, keeping `inset` px inside the monitor
++-- (a window must overlap its monitor to be rendered). So when you zoom, windows leave the screen
++-- outward in their own direction, as a real zoom would, instead of all flying to one corner.
++-- Returns nil when the window would still be on screen (a window in an inactive tab sits under the
++-- visible one) or is unknown: the caller falls back to the corner.
++local function camera_park(area, wb, vb, bw, bh, inset)
++  if not (wb and vb) or vb.w <= 0 or vb.h <= 0 then return nil end
++  local sx, sy = area.w / vb.w, area.h / vb.h
++  local box = { x = area.x + (wb.x - vb.x) * sx, y = area.y + (wb.y - vb.y) * sy, w = bw, h = bh }
++  if intersects(box, { x = area.x + 2, y = area.y + 2, w = area.w - 4, h = area.h - 4 }) then return nil end
++  if box.x + box.w <= area.x then box.x = area.x - box.w + inset
++  elseif box.x >= area.x + area.w then box.x = area.x + area.w - inset end
++  if box.y + box.h <= area.y then box.y = area.y - box.h + inset
++  elseif box.y >= area.y + area.h then box.y = area.y + area.h - inset end
++  return box
++end
++M.camera_park = camera_park
++
  local function apply(tree, ctx)
    local area = ctx.area
 -  local boxes = T.layout(tree, area)
@@ -59,11 +98,46 @@ index f4f204f..7472fa4 100644
    local pw, ph = math.max(200, math.floor(area.w / 3)), math.max(150, math.floor(area.h / 3))
    -- Remember each window's last visible box: a parked window keeps that size,
    -- so its app does not reflow and the map's thumbnail still shows it as it was.
-@@ -263,8 +297,13 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+@@ -188,7 +259,7 @@ local function apply(tree, ctx)
+     if not T.find_window(tree, addr) then tree.last_box[addr] = nil end
+   end
+   local parked
+-  if M.park == "corner" then
++  if M.park == "corner" or M.park == "camera" then
+     -- Hyprland only renders (and lets the shell capture) windows whose box
+     -- touches their monitor. Park hidden windows so that a single pixel of
+     -- content sits inside the monitor's top-left corner, under the bar:
+@@ -203,6 +274,8 @@ local function apply(tree, ctx)
+   else
+     parked = { x = area.x + area.w + OFFSCREEN, y = area.y, w = pw, h = ph }
+   end
++  local world, vbox
++  if M.park == "camera" then world, vbox = world_layout(tree, area) end
+   local now_parked, all = {}, {}
+   for _, t in ipairs(ctx.targets) do
+     local w = t.window
+@@ -215,8 +288,13 @@ local function apply(tree, ctx)
+       if parked.raw then
+         local last = w and tree.last_box[w.address] or nil
+         local bw, bh = (last and last.w) or parked.w, (last and last.h) or parked.h
+-        -- exact geometry, no gaps: the corner overlap must be precise
+-        t:set_box({ x = parked.mx - bw + M.park_inset, y = parked.my - bh + M.park_inset, w = bw, h = bh })
++        local cam = world and w and camera_park(area, world[w.address], vbox, bw, bh, M.park_inset)
++        if cam then
++          t:set_box(cam)
++        else
++          -- exact geometry, no gaps: the corner overlap must be precise
++          t:set_box({ x = parked.mx - bw + M.park_inset, y = parked.my - bh + M.park_inset, w = bw, h = bh })
++        end
+       else
+         t:place(parked)
+       end
+@@ -263,8 +341,14 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
    split row|column|tabs      wrap the focused window so the next one opens beside it
    layout row|column|tabs|next  change the container around the focused window
    move left|right|up|down    move the focused window, i3-style
 +  place <src> <dst> <zone>   move window src beside dst (left|right|up|down), or swap (center)
++  focus <address>            focus that window (what zoom-in zooms into)
 +  drag-hold <address>        keep a floated (dragged) window's slot so the other tiles do not reflow
 +  drop-intent <src> <dst|screen> <zone> | clear   where src goes when the compositor re-tiles it after a drag
 +                             (zones: left right up down center; with screen: sleft sright sup sdown qtl qtr qbl qbr)
@@ -73,7 +147,7 @@ index f4f204f..7472fa4 100644
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -346,6 +385,28 @@ local function handle(tree, msg)
+@@ -346,6 +430,33 @@ local function handle(tree, msg)
      local dir = DIRS[(arg or ""):lower()]
      if not dir then return "usage: move left|right|up|down" end
      return T.move(tree, dir) and ("moved " .. dir) or "can't move that way"
@@ -83,6 +157,11 @@ index f4f204f..7472fa4 100644
 +    local src, dst, zone = words[2], words[3], (words[4] or ""):lower()
 +    if not (src and dst and zone ~= "") then return "usage: place <src> <dst> left|right|up|down|center" end
 +    return T.place(tree, src, dst, zone) and ("placed " .. src .. " " .. zone .. " of " .. dst) or "can't place that"
++  elseif cmd == "focus" then
++    -- focus <address>: focus that window (the overlay's icon cards use it on hover, so the layout's
++    -- "focused window" - what zoom-in zooms into - is the one under the pointer)
++    if not words[2] then return "usage: focus <address>" end
++    return T.set_focus(tree, words[2]) and ("focused " .. words[2]) or "no such window"
 +  elseif cmd == "drag-hold" then
 +    -- drag-hold <address>: keep this window's slot while it is floated for a drag (no reflow)
 +    if not words[2] then return "usage: drag-hold <address>" end
@@ -102,7 +181,7 @@ index f4f204f..7472fa4 100644
    elseif cmd == "tab" then
      local delta = (arg == "prev" or arg == "previous") and -1 or 1
      return T.tab_cycle(tree, delta) and "tab switched" or "no tabs container in view"
-@@ -353,6 +414,10 @@ local function handle(tree, msg)
+@@ -353,6 +464,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -113,7 +192,7 @@ index f4f204f..7472fa4 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -377,12 +442,39 @@ end
+@@ -377,12 +492,39 @@ end
  
  -- --------------------------------------------------------------- provider --
  
@@ -126,12 +205,12 @@ index f4f204f..7472fa4 100644
 +  local ok, w = pcall(hl.get_window, "address:" .. address)
 +  if not (ok and type(w) == "table") then return false end
 +  if w.floating == nil and not warned_floating then
-+    -- Without this field a floated window cannot be told from a closed one, so slots are not held
-+    -- (tiles reflow while dragging, as before). Written once to fractal.log.
++    -- Without the field a floated window cannot be told from one that merely left this workspace;
++    -- it is treated as floated (held for the grace period). Written once to fractal.log.
 +    warned_floating = true
-+    log("window objects have no `floating` field: dragged windows will not keep their slot")
++    log("window objects have no `floating` field: any window that still exists is held briefly")
 +  end
-+  return w.floating == true
++  return w.floating ~= false
 +end
 +
 +local function sync_opts(tree)
@@ -154,7 +233,7 @@ index f4f204f..7472fa4 100644
      refresh_focus(tree)
      apply(tree, ctx)
      save(ws, tree)
-@@ -402,12 +494,12 @@ function M.layout_msg(ctx, msg)
+@@ -402,12 +544,12 @@ function M.layout_msg(ctx, msg)
        tree = T.new({ desktop = M.desktop })
        M.trees[ws] = tree
      end
@@ -169,6 +248,15 @@ index f4f204f..7472fa4 100644
      write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
+@@ -430,7 +572,7 @@ function M.setup(opts)
+   M.name = opts.name or "fractal"
+   M.desktop = opts.desktop == true
+   M.notify = opts.notify ~= false
+-  M.park = opts.park or "corner"      -- corner (default) | offscreen
++  M.park = opts.park or "camera"      -- camera (default: zoom slides windows out in their own direction) | corner | offscreen
+   M.park_inset = opts.park_inset or 12  -- set_box shaves ~5 px per side and terminals snap to cells: keep a few px inside
+   pcall(os.execute, string.format("mkdir -p %q %q", STATE_DIR, RUNTIME_DIR))
+ 
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
 index 7dae2d2..4ceaeb3 100644
 --- a/lua/fractal_tree.lua
@@ -588,10 +676,10 @@ index 7dae2d2..4ceaeb3 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..2233676 100644
+index e2ae2ae..7a29d2a 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,111 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,161 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -699,6 +787,56 @@ index e2ae2ae..2233676 100644
 +  -- a window that no longer exists (closed) leaves at once
 +  provider.recalculate(ctx_for({ A, C }))
 +  eq(require("hypr.fractal_tree").find_window(_G.__fractal.impl.trees["9"], "0xb"), nil, "closed: no gap")
++end)
++
++test("camera parking: zooming slides the other windows out in their own direction, not all to one corner", function()
++  local D = win("0xd", "obsidian")
++  active_window = B
++  local ctx = ctx_for({ A, B, C, D })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  provider.layout_msg(ctx_for({ A, B, C, D }), "zoom-in")                -- viewport = the column on the right
++  local c2 = ctx_for({ A, B, C, D })
++  provider.recalculate(c2)
++  local a = c2.placed["0xa"]
++  assert(a.x + a.w <= 12 + 1 and a.x < 0, "a (left of the view) is parked just beyond the LEFT edge")
++  assert(a.y >= 0 and a.y < 800, "and keeps its own height position instead of sliding to the top")
++  -- zooming further into the bottom window sends the ones above it upward
++  provider.layout_msg(ctx_for({ A, B, C, D }), "zoom-step")
++  provider.layout_msg(ctx_for({ A, B, C, D }), "zoom-in")
++  local c3 = ctx_for({ A, B, C, D })
++  provider.recalculate(c3)
++  local moved = false
++  for _, addr in ipairs({ "0xa", "0xb", "0xc", "0xd" }) do
++    local b = c3.placed[addr]
++    if b and (b.x < 0 or b.y < 0 or b.x >= 1200 or b.y >= 800) then moved = true end
++  end
++  assert(moved, "someone is parked off screen")
++end)
++
++test("camera_park: nil when the window would still be on screen; clamped to just past the nearest edge", function()
++  local area = { x = 0, y = 0, w = 1200, h = 800 }
++  local vb = { x = 600, y = 0, w = 600, h = 800 }                       -- the right half is the view
++  local box = M.camera_park(area, { x = 0, y = 400, w = 600, h = 400 }, vb, 500, 300, 12)
++  eq(box.x, -488, "left of the view -> just past the left edge (12 px overlap)")
++  eq(box.y, 400, "its own height is kept (the view and the screen are equally tall here)")
++  -- a window above the view goes just past the top edge, keeping its horizontal position
++  local up = M.camera_park(area, { x = 600, y = -400, w = 600, h = 400 }, { x = 600, y = 0, w = 600, h = 400 }, 500, 300, 12)
++  eq(up.y, -288); eq(up.x, 0, "scaled x: (600-600) * 2 = 0")
++  eq(M.camera_park(area, { x = 600, y = 0, w = 300, h = 300 }, vb, 500, 300, 12), nil, "still on screen (an inactive tab): corner fallback")
++  eq(M.camera_park(area, nil, vb, 500, 300, 12), nil, "unknown window: corner fallback")
++end)
++
++test("focus command focuses a window", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  provider.layout_msg(ctx_for({ A, B, C }), "focus 0xc")
++  eq(reply(), "focused 0xc")
++  eq(_G.__fractal.impl.trees["9"].focused, "0xc")
++  provider.layout_msg(ctx_for({ A, B, C }), "focus 0xnope")
++  eq(reply(), "no such window")
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))
