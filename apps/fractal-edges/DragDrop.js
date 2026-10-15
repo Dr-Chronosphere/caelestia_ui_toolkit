@@ -91,6 +91,26 @@ function screenTarget(zone, area) {
     return zone ? { address: "screen", zone: zone, box: area } : null;
 }
 
+// Workspace hop: the extreme left / right strip of a monitor (px wide). Returns "prev" (left edge),
+// "next" (right edge) or "". `mon` is the monitor's rect {x, y, w, h}.
+function edgeHop(p, mon, px) {
+    if (!mon || !(px > 0))
+        return "";
+    if (p.y < mon.y || p.y >= mon.y + mon.h)
+        return "";
+    if (p.x >= mon.x && p.x < mon.x + px)
+        return "prev";
+    if (p.x < mon.x + mon.w && p.x >= mon.x + mon.w - px)
+        return "next";
+    return "";
+}
+
+// The workspace a hop leads to from `ws`, or 0 when there is none (nothing before workspace 1).
+function hopTarget(ws, side) {
+    var t = side === "prev" ? ws - 1 : ws + 1;
+    return t >= 1 && ws >= 1 ? t : 0;
+}
+
 // Where the window would sit: half of the target on that side, or the whole tile for a swap.
 function highlight(target) {
     var b = target.box;

@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..ba14be8 100644
+index f4f204f..985c02b 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -132,12 +132,13 @@ index f4f204f..ba14be8 100644
        else
          t:place(parked)
        end
-@@ -263,8 +341,14 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+@@ -263,8 +341,15 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
    split row|column|tabs      wrap the focused window so the next one opens beside it
    layout row|column|tabs|next  change the container around the focused window
    move left|right|up|down    move the focused window, i3-style
 +  place <src> <dst> <zone>   move window src beside dst (left|right|up|down), or swap (center)
 +  focus <address>            focus that window (what zoom-in zooms into)
++  drag-release <address>     drop a dragged window's held slot now (it left this workspace)
 +  drag-hold <address>        keep a floated (dragged) window's slot so the other tiles do not reflow
 +  drop-intent <src> <dst|screen> <zone> | clear   where src goes when the compositor re-tiles it after a drag
 +                             (zones: left right up down center; with screen: sleft sright sup sdown qtl qtr qbl qbr)
@@ -147,7 +148,7 @@ index f4f204f..ba14be8 100644
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -346,6 +430,33 @@ local function handle(tree, msg)
+@@ -346,6 +431,37 @@ local function handle(tree, msg)
      local dir = DIRS[(arg or ""):lower()]
      if not dir then return "usage: move left|right|up|down" end
      return T.move(tree, dir) and ("moved " .. dir) or "can't move that way"
@@ -162,6 +163,10 @@ index f4f204f..ba14be8 100644
 +    -- "focused window" - what zoom-in zooms into - is the one under the pointer)
 +    if not words[2] then return "usage: focus <address>" end
 +    return T.set_focus(tree, words[2]) and ("focused " .. words[2]) or "no such window"
++  elseif cmd == "drag-release" then
++    -- drag-release <address>: the dragged window left (a workspace hop): drop its slot at once
++    if not words[2] then return "usage: drag-release <address>" end
++    return T.release(tree, words[2]) and ("released " .. words[2]) or "nothing to release"
 +  elseif cmd == "drag-hold" then
 +    -- drag-hold <address>: keep this window's slot while it is floated for a drag (no reflow)
 +    if not words[2] then return "usage: drag-hold <address>" end
@@ -181,7 +186,7 @@ index f4f204f..ba14be8 100644
    elseif cmd == "tab" then
      local delta = (arg == "prev" or arg == "previous") and -1 or 1
      return T.tab_cycle(tree, delta) and "tab switched" or "no tabs container in view"
-@@ -353,6 +464,10 @@ local function handle(tree, msg)
+@@ -353,6 +469,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -192,7 +197,7 @@ index f4f204f..ba14be8 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -377,12 +492,39 @@ end
+@@ -377,12 +497,39 @@ end
  
  -- --------------------------------------------------------------- provider --
  
@@ -233,7 +238,7 @@ index f4f204f..ba14be8 100644
      refresh_focus(tree)
      apply(tree, ctx)
      save(ws, tree)
-@@ -402,12 +544,12 @@ function M.layout_msg(ctx, msg)
+@@ -402,12 +549,12 @@ function M.layout_msg(ctx, msg)
        tree = T.new({ desktop = M.desktop })
        M.trees[ws] = tree
      end
@@ -248,7 +253,7 @@ index f4f204f..ba14be8 100644
      write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
-@@ -430,7 +572,7 @@ function M.setup(opts)
+@@ -430,7 +577,7 @@ function M.setup(opts)
    M.name = opts.name or "fractal"
    M.desktop = opts.desktop == true
    M.notify = opts.notify ~= false
@@ -258,7 +263,7 @@ index f4f204f..ba14be8 100644
    pcall(os.execute, string.format("mkdir -p %q %q", STATE_DIR, RUNTIME_DIR))
  
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
-index 7dae2d2..4ceaeb3 100644
+index 7dae2d2..82e6a02 100644
 --- a/lua/fractal_tree.lua
 +++ b/lua/fractal_tree.lua
 @@ -232,9 +232,31 @@ local function wrap(tree, node, kind)
@@ -523,7 +528,7 @@ index 7dae2d2..4ceaeb3 100644
    return leaf
  end
  
-@@ -338,19 +569,70 @@ function T.set_focus(tree, address)
+@@ -338,19 +569,79 @@ function T.set_focus(tree, address)
  end
  
  -- Make the tree match the set of live windows: { {address=, label=}, ... } in order.
@@ -588,6 +593,15 @@ index 7dae2d2..4ceaeb3 100644
    end
  end
  
++-- Let go of a dragged window's slot right now (the window left this workspace, say): remove its leaf
++-- and forget any hold or intent for it. Returns true if a leaf was removed.
++function T.release(tree, address)
++  if tree.held then tree.held[address] = nil end
++  if tree.missing then tree.missing[address] = nil end
++  if tree.intent and tree.intent.src == address then tree.intent = nil end
++  return T.remove_window(tree, address)
++end
++
 +-- Hold `address`'s slot while it is floated (a drag in progress).
 +function T.hold(tree, address, now)
 +  tree.held = tree.held or {}
@@ -597,7 +611,7 @@ index 7dae2d2..4ceaeb3 100644
  -- ------------------------------------------------------- viewport (zoom) --
  
  local function mask_list(mask)
-@@ -708,19 +990,55 @@ function T.resize(tree, factor)
+@@ -708,19 +999,55 @@ function T.resize(tree, factor)
    return leaf
  end
  
@@ -655,7 +669,7 @@ index 7dae2d2..4ceaeb3 100644
      if node.kind == "tabs" then
        local c = active_child(node)
        if c and not has_visible(tree, c) then
-@@ -884,6 +1202,8 @@ local function json_node(n, tree, f, names)
+@@ -884,6 +1211,8 @@ local function json_node(n, tree, f, names)
      '"focused":' .. tostring(n == f),
      '"visible":' .. tostring(T.is_visible(tree, n) or (is_container(n) and contains(tree.viewport, n) and has_visible(tree, n))),
    }
@@ -664,7 +678,7 @@ index 7dae2d2..4ceaeb3 100644
    if n.address then parts[#parts + 1] = '"address":' .. json_str(n.address) end
    if n.title then parts[#parts + 1] = '"title":' .. json_str(n.title) end
    if names[n.id] then parts[#parts + 1] = '"framing":' .. json_str(names[n.id]) end
-@@ -921,6 +1241,10 @@ function T.to_json(tree, extra)
+@@ -921,6 +1250,10 @@ function T.to_json(tree, extra)
      '"canForward":' .. tostring(#tree.forward > 0),
      '"tree":' .. json_node(tree.root, tree, f, names),
    }
@@ -676,10 +690,10 @@ index 7dae2d2..4ceaeb3 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..7a29d2a 100644
+index e2ae2ae..d5564d2 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,161 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,178 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -839,13 +853,30 @@ index e2ae2ae..7a29d2a 100644
 +  eq(reply(), "no such window")
 +end)
 +
++test("drag-release removes a held window's slot", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  local real_get = hl.get_window
++  hl.get_window = function(sel) return { address = sel:gsub("^address:", ""), floating = true } end
++  provider.recalculate(ctx_for({ A, C }))                    -- b floated: its slot is held
++  eq(require("hypr.fractal_tree").find_window(_G.__fractal.impl.trees["9"], "0xb") ~= nil, true)
++  provider.layout_msg(ctx_for({ A, C }), "drag-release 0xb")
++  eq(reply(), "released 0xb")
++  eq(require("hypr.fractal_tree").find_window(_G.__fractal.impl.trees["9"], "0xb"), nil)
++  provider.layout_msg(ctx_for({ A, C }), "drag-release 0xb")
++  eq(reply(), "nothing to release")
++  hl.get_window = real_get
++end)
++
  print(string.format("%d passed, %d failed", passed, failed))
  os.exit(failed == 0 and 0 or 1)
 diff --git a/tests/test_tree.lua b/tests/test_tree.lua
-index 880b759..ba42860 100644
+index 880b759..832fda9 100644
 --- a/tests/test_tree.lua
 +++ b/tests/test_tree.lua
-@@ -399,5 +399,324 @@ test("tabs with a hidden active child fall back to a visible one", function()
+@@ -399,5 +399,341 @@ test("tabs with a hidden active child fall back to a visible one", function()
    eq(keys(T.layout(t, AREA)), "a,c")
  end)
  
@@ -1166,6 +1197,23 @@ index 880b759..ba42860 100644
 +  T.add_window(t2, "c", "C", WIDE)
 +  b = T.layout(t2, WIDE)
 +  eq(b.c.x, 0); eq(b.c.h, WIDE.h)
++end)
++
++test("release drops a held slot at once and forgets its hold and intent", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  local opts = { exists = function() return true end, now = 100 }
++  T.sync(t, live("a", "c"), WIDE, opts)            -- b floated
++  T.hold(t, "b", 100)
++  T.set_intent(t, { src = "b", dst = "a", zone = "left" })
++  eq(T.release(t, "b"), true)
++  eq(T.find_window(t, "b"), nil, "slot gone")
++  eq(t.intent, nil)
++  eq(t.held.b, nil)
++  opts.now = 101
++  T.sync(t, live("a", "c"), WIDE, opts)
++  eq(T.find_window(t, "b"), nil, "and it does not come back on the next sync")
++  eq(T.release(t, "zz"), false)
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))

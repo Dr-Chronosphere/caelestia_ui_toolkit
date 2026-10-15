@@ -371,6 +371,20 @@ ShellRoot {
     // other; while this is on (bind `bin/caelestia-fractal-edges layoutdrop toggle|on|off`) the layout
     // drop applies to them too.
     property bool forceLayout: false
+    // Dragging a window into the extreme left/right strip of the screen and holding it there carries
+    // it to the previous/next workspace. FRACTAL_EDGE_WS_EDGE=off disables; _PX is the strip's width
+    // (default 24), _MS the hold time (default 600).
+    readonly property bool wsEdge: Quickshell.env("FRACTAL_EDGE_WS_EDGE") !== "off"
+    readonly property real wsEdgePx: !isNaN(parseFloat(Quickshell.env("FRACTAL_EDGE_WS_EDGE_PX"))) ? parseFloat(Quickshell.env("FRACTAL_EDGE_WS_EDGE_PX")) : 24
+    readonly property int wsEdgeMs: parseInt(Quickshell.env("FRACTAL_EDGE_WS_EDGE_MS")) || 600
+    property string hopSide: ""          // "prev" | "next" while the pointer is in a strip
+    property string hopMon: ""
+    property int hopTargetWs: 0
+    property real hopSince: 0
+    property real hopProgress: 0
+    property real hopCooldown: 0
+    property string hopWindow: ""
+    property int hopNextWs: 0
     property var ddTracker: DragDrop.create()
     property var tilesByMon: ({})
     property string ddDragging: ""
@@ -396,6 +410,9 @@ ShellRoot {
         dropZone = "";
         intentKey = "";
         heldFor = "";
+        hopSide = "";
+        hopMon = "";
+        hopProgress = 0;
     }
 
     function ddHandleEvent(name: string, data: string): void {
@@ -418,6 +435,44 @@ ShellRoot {
         }
     }
 
+    // Carry the dragged window to workspace `to`: first let its slot go on this workspace's layout, then
+    // move the window (the Lua API is best-effort: tried with follow, then move + focus).
+    function hopWorkspace(address: string, to: int): void {
+        dbg("workspace hop: " + address + " -> " + to);
+        hopCooldown = Date.now() + 900;
+        hopSince = hopCooldown;
+        hopProgress = 0;
+        if (!/^[A-Za-z0-9_x-]+$/.test(address))
+            return;
+        Hyprland.dispatch("hl.dsp.layout(\"drop-intent clear\")");
+        Hyprland.dispatch("hl.dsp.layout(\"drag-release " + address + "\")");
+        hopWindow = address;
+        hopNextWs = to;
+        hopDelay.restart();
+    }
+
+    Timer {
+        id: hopDelay
+
+        interval: 120
+        onTriggered: {
+            if (!hopProc.running)
+                hopProc.running = true;
+        }
+    }
+
+    Process {
+        id: hopProc
+
+        command: ["hyprctl", "eval", 'local w = "address:' + root.hopWindow + '"; local n = "' + root.hopNextWs + '"; ' + 'local ok = pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, follow = true, window = w })) end); ' + 'if not ok then pcall(function() hl.dispatch(hl.dsp.window.move({ workspace = n, window = w })) end); pcall(function() hl.dispatch(hl.dsp.focus({ workspace = n })) end) end']
+        stdout: StdioCollector {
+            id: hopOut
+
+            waitForEnd: true
+        }
+        onExited: root.dbg("workspace hop result: " + String(hopOut.text || "").trim())
+    }
+
     function ddPointer(p): void {
         lastCursor = p;
         const r = DragDrop.pointer(ddTracker, p, Date.now());
@@ -426,6 +481,43 @@ ShellRoot {
         if (!r.drag) {
             if (dropRect !== null)
                 ddStop();
+            return;
+        }
+        // The extreme left/right strip: hold the window there to carry it to the neighbouring workspace.
+        let hopping = false;
+        if (wsEdge) {
+            for (const name in tilesByMon) {
+                const info = tilesByMon[name];
+                const side = DragDrop.edgeHop(p, info.mon, wsEdgePx);
+                const to = side ? DragDrop.hopTarget(info.ws, side) : 0;
+                if (!side || !to)
+                    continue;
+                hopping = true;
+                const now = Date.now();
+                if (hopSide !== side || hopMon !== name) {
+                    hopSide = side;
+                    hopMon = name;
+                    hopTargetWs = to;
+                    hopSince = now;
+                }
+                hopProgress = Math.min(1, Math.max(0, (now - Math.max(hopSince, hopCooldown)) / wsEdgeMs));
+                if (hopProgress >= 1 && now >= hopCooldown)
+                    hopWorkspace(r.drag, to);
+                break;
+            }
+        }
+        if (!hopping) {
+            hopSide = "";
+            hopMon = "";
+            hopProgress = 0;
+        } else {
+            // no drop target while hopping: clear any intent aimed at this workspace
+            if (intentKey !== "") {
+                intentKey = "";
+                Hyprland.dispatch("hl.dsp.layout(\"drop-intent clear\")");
+            }
+            dropRect = null;
+            dropZone = "";
             return;
         }
         // The edges of the screen come first: a half or a quadrant, whatever windows exist. Then the
@@ -973,7 +1065,7 @@ ShellRoot {
             // Highlight of where a dragged window will land (click-through).
             PanelWindow {
                 screen: scope.modelData
-                visible: root.dragDrop && root.dropRect !== null && root.dropMon === scope.modelData.name
+                visible: root.dragDrop && ((root.dropRect !== null && root.dropMon === scope.modelData.name) || (root.hopSide !== "" && root.hopMon === scope.modelData.name))
                 anchors {
                     top: true
                     bottom: true
@@ -985,6 +1077,14 @@ ShellRoot {
                 mask: Region {}
                 WlrLayershell.namespace: "fractal-edges-drop"
                 WlrLayershell.layer: WlrLayer.Overlay
+
+                WsHopHint {
+                    anchors.fill: parent
+                    side: root.hopMon === scope.modelData.name ? root.hopSide : ""
+                    progress: root.hopProgress
+                    workspace: root.hopTargetWs
+                    stripWidth: root.wsEdgePx
+                }
 
                 DropHighlight {
                     anchors.fill: parent

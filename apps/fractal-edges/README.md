@@ -273,3 +273,28 @@ A window counts as tabbable when its title starts with `Files #`.
   default) they leave the screen in their own direction, as a real camera zoom would, and slide back
   in from there on zoom-out; they still overlap their monitor by a few pixels so the map can capture
   them. `fractal.setup({ park = "corner" })` brings the old behaviour back.
+
+## Cards follow their windows
+
+- **Zoom / reflow:** the card used to jump to the window's final position while the window was still
+  animating there. While a transition is under way the card now tracks the window's *current* rect
+  (`hyprctl clients -j` reports the animated position; sampled ~30 times a second and glided between
+  samples), and the polling stops once everything has settled. `FRACTAL_EDGE_FOLLOW=off` disables it.
+- **Workspace switch:** the old workspace's cards slide out and the new one's slide in, using your
+  workspace animation (style and speed read from `hyprctl animations -j`: `slide` horizontal,
+  `slidevert` vertical, other styles don't move). Cards made during a slide are simply there instead
+  of fading in. `FRACTAL_EDGE_WS_SLIDE=off` disables it.
+
+## Dragging a window to another workspace
+
+Drag a window to the extreme left or right edge of the screen and hold it there: a glowing strip
+with "Workspace N" and a fill shows the hold time, and then the window is moved to the previous /
+next workspace (and you go with it). The first workspace has no "previous". The layout lets go of
+the window's slot on the old workspace first (`drag-release`).
+
+- `FRACTAL_EDGE_WS_EDGE=off` turns it off; `FRACTAL_EDGE_WS_EDGE_PX` (default 24) is the strip's
+  width and `FRACTAL_EDGE_WS_EDGE_MS` (default 600) the hold time. The strip wins over the screen
+  half/quadrant zones within its few pixels.
+- The move uses Hyprland's Lua API (`hl.dsp.window.move({ workspace, follow, window })`, falling back
+  to move + `hl.dsp.focus({ workspace })`) through `hyprctl eval`; I couldn't verify those names, so
+  run with `FRACTAL_EDGE_DEBUG=1` and read `workspace hop result: …` in the log if nothing happens.
