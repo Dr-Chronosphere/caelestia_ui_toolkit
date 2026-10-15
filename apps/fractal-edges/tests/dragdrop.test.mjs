@@ -16,30 +16,22 @@ assert.equal(list.length, 4);
 const a = list.find(t => t.address === "a"), c = list.find(t => t.address === "c");
 assert.ok(a.box.w > 0 && c.box.w > 0);
 
-// zones: edges (28%) vs centre
-const mid = { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 };
-let t = plain(D.targetAt(mid, list, "", { swap: true }));
-assert.deepEqual([t.address, t.zone], ["a", "center"], "with swap enabled the middle swaps");
-// by default there is no swap: the window goes to the side the pointer is on
-const near = (fx, fy) => plain(D.targetAt({ x: a.box.x + a.box.w * fx, y: a.box.y + a.box.h * fy }, list, ""));
-assert.equal(near(0.4, 0.5).zone, "left", "just left of the middle: left half");
-assert.equal(near(0.6, 0.5).zone, "right");
-assert.equal(near(0.5, 0.42).zone, "up");
-assert.equal(near(0.5, 0.6).zone, "down");
-assert.equal(near(0.42, 0.52).zone, "left", "the larger offset from the centre decides");
-assert.equal(near(0.52, 0.65).zone, "down");
-assert.ok(["left", "right", "up", "down"].includes(near(0.5, 0.5).zone), "the exact centre still picks a side");
-t = plain(D.targetAt({ x: a.box.x + 3, y: mid.y }, list, ""));
-assert.deepEqual([t.address, t.zone], ["a", "left"]);
-t = plain(D.targetAt({ x: a.box.x + a.box.w - 3, y: mid.y }, list, ""));
-assert.equal(t.zone, "right");
-t = plain(D.targetAt({ x: mid.x, y: a.box.y + 2 }, list, ""));
-assert.equal(t.zone, "up");
-t = plain(D.targetAt({ x: mid.x, y: a.box.y + a.box.h - 2 }, list, ""));
-assert.equal(t.zone, "down");
-t = plain(D.targetAt({ x: a.box.x + 3, y: a.box.y + 2 }, list, ""));
-assert.ok(["left", "up"].includes(t.zone), "corner: the nearer edge");
-assert.equal(D.targetAt(mid, list, "a") === null || D.targetAt(mid, list, "a").address !== "a", true, "never targets the dragged window itself");
+// zones: a small middle swaps, everywhere else the window goes to the side the pointer is on
+const near = (fx, fy, o) => plain(D.targetAt({ x: a.box.x + a.box.w * fx, y: a.box.y + a.box.h * fy }, list, "", o));
+assert.deepEqual([near(0.5, 0.5).address, near(0.5, 0.5).zone], ["a", "center"], "the middle swaps");
+assert.equal(near(0.58, 0.44).zone, "center", "the swap area is 30% of the tile each way (+-15% from the centre)");
+assert.equal(near(0.7, 0.5).zone, "right", "outside it: the side the pointer is on");
+assert.equal(near(0.3, 0.5).zone, "left");
+assert.equal(near(0.5, 0.3).zone, "up");
+assert.equal(near(0.5, 0.7).zone, "down");
+assert.equal(near(0.02, 0.5).zone, "left");
+assert.equal(near(0.5, 0.98).zone, "down");
+assert.equal(near(0.35, 0.6).zone, "left", "the larger offset from the middle decides (x offset 0.15 beats y offset 0.10)");
+assert.equal(near(0.42, 0.7).zone, "down");
+assert.equal(near(0.5, 0.5, { swapSize: 0 }).zone === "center", false, "swapSize 0 turns swapping off");
+assert.equal(near(0.9, 0.9).zone, "right", "corner: the larger offset (a tie goes to left/right)");
+assert.equal(D.targetAt(near_pt(0.5, 0.5), list, "a") === null || D.targetAt(near_pt(0.5, 0.5), list, "a").address !== "a", true, "never targets the dragged window itself");
+function near_pt(fx, fy) { return { x: a.box.x + a.box.w * fx, y: a.box.y + a.box.h * fy }; }
 assert.equal(D.targetAt({ x: -50, y: -50 }, list, ""), null, "outside every tile: no target");
 
 // highlight rectangles

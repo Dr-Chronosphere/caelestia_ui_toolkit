@@ -227,10 +227,11 @@ it next to the *focused* tile, wherever you dropped it, and showed nothing while
 
 1. When a tile floats and the pointer then moves, the overlay polls the pointer
    (`hyprctl cursorpos -j`, about 30 times a second).
-2. It finds the tile under the pointer and which side of it the pointer is on: near an edge that
-   edge, and in the middle whichever half the pointer is nearest (the window goes beside the tile
-   on that side; it never displaces the app underneath). `FRACTAL_EDGE_SWAP=1` makes the middle of a
-   tile swap the two windows instead.
+2. It finds the tile under the pointer. The middle of the tile (30% of it each way,
+   `FRACTAL_EDGE_SWAP_SIZE`, 0 = never) **swaps** the two windows and shows the swap icon; anywhere
+   else the window goes **beside** the tile on the side the pointer is on (whichever offset from
+   the middle is larger decides between left/right and up/down), so it never displaces the app
+   underneath.
 3. A highlight (`DropHighlight.qml`, namespace `fractal-edges-drop`, click-through) shows where the
    window will sit, gliding between targets.
 4. It tells the layout (`drop-intent <window> <target> <zone>`, from the patched fractal-wm), so when

@@ -7,7 +7,6 @@
 // tile, which side), shows that as a highlight, and tells the layout (`drop-intent`) so the window
 // lands there when it is re-tiled.
 
-var EDGE = 0.28;           // fraction of a tile's width/height that counts as "its edge"
 var MOVE_PX = 8;           // pointer travel that makes a freshly floated window a drag
 var GRACE_MS = 700;        // ...if it starts within this long of the float event
 
@@ -29,36 +28,30 @@ function inBox(p, b) {
 }
 
 // The drop target under pointer `p`: { address, zone, box } with zone one of
-// left / right / up / down, or null when the pointer is over no tile. `skip` is the dragged
-// window's own address.
-// The window goes to the side of the tile the pointer is on: near an edge that edge, and in the
-// middle whichever side the pointer is nearest (the larger offset from the centre decides between
-// left/right and up/down). With opts.swap, the middle of a tile (inside EDGE of every side) is a
-// swap of the two windows instead ("center").
+// left / right / up / down / center, or null when the pointer is over no tile. `skip` is the
+// dragged window's own address.
+//   center  the middle of the tile (a SWAP_SIZE-wide box, 30% by default): the two windows swap
+//   else    the side of the tile the pointer is on: whichever offset from the middle is larger
+//           decides between left/right and up/down, so the window goes beside the tile and never
+//           displaces the app underneath.
+// opts.swapSize overrides the size of the swap area (a fraction of the tile; 0 = never swap).
+var SWAP_SIZE = 0.3;
+
 function targetAt(p, list, skip, opts) {
-    var swap = !!(opts && opts.swap);
+    var swapSize = opts && opts.swapSize !== undefined ? opts.swapSize : SWAP_SIZE;
     for (var i = 0; i < list.length; i++) {
         var t = list[i];
         if (t.address === skip || !inBox(p, t.box))
             continue;
-        var dx = (p.x - t.box.x) / t.box.w, dy = (p.y - t.box.y) / t.box.h;
-        var d = { left: dx, right: 1 - dx, up: dy, down: 1 - dy };
-        var best = "center", bestD = EDGE;
-        ["left", "right", "up", "down"].forEach(function (k) {
-            if (d[k] < bestD) {
-                best = k;
-                bestD = d[k];
-            }
-        });
-        if (best === "center" && !swap) {
-            // the side the pointer is on: whichever offset from the middle is larger
-            var ox = dx - 0.5, oy = dy - 0.5;
-            if (Math.abs(ox) >= Math.abs(oy))
-                best = ox < 0 ? "left" : "right";
-            else
-                best = oy < 0 ? "up" : "down";
-        }
-        return { address: t.address, zone: best, box: t.box };
+        var ox = (p.x - t.box.x) / t.box.w - 0.5, oy = (p.y - t.box.y) / t.box.h - 0.5;
+        var zone;
+        if (swapSize > 0 && Math.abs(ox) <= swapSize / 2 && Math.abs(oy) <= swapSize / 2)
+            zone = "center";
+        else if (Math.abs(ox) >= Math.abs(oy))
+            zone = ox < 0 ? "left" : "right";
+        else
+            zone = oy < 0 ? "up" : "down";
+        return { address: t.address, zone: zone, box: t.box };
     }
     return null;
 }

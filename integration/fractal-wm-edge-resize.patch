@@ -116,10 +116,42 @@ index f4f204f..1f8f919 100644
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
-index 7dae2d2..61e186f 100644
+index 7dae2d2..73aae46 100644
 --- a/lua/fractal_tree.lua
 +++ b/lua/fractal_tree.lua
-@@ -262,6 +262,98 @@ local function detach(tree, node)
+@@ -232,9 +232,31 @@ local function wrap(tree, node, kind)
+   return container
+ end
+ 
++-- Remember where a window sat (a neighbouring window and which side of it), so a later swap with
++-- it can put the other window back there: a dragged window is out of the tree while it floats.
++local function remember_slot(tree, node)
++  if node.kind ~= "window" or not node.parent then return end
++  local parent = node.parent
++  local idx = index_of(parent, node)
++  local axis_after, axis_before
++  if parent.kind == "column" then axis_after, axis_before = "up", "down" else axis_after, axis_before = "left", "right" end
++  -- recorded zone = where the dragged window was relative to the neighbour
++  local sib, zone
++  if idx > 1 then
++    sib, zone = parent.children[idx - 1], axis_before        -- it was after (below/right of) the previous sibling
++  elseif #parent.children > 1 then
++    sib, zone = parent.children[idx + 1], axis_after         -- first child: before (above/left of) the next
++  end
++  local w = sib and first_window(sib)
++  if not w then return end
++  tree.slots = tree.slots or {}
++  tree.slots[node.address] = { addr = w.address, zone = zone, at = os.time() }
++end
++
+ local function detach(tree, node)
+   local parent = node.parent
+   if not parent then return end
++  remember_slot(tree, node)
+   remove(parent, node)
+   local f = focused_node(tree)
+   local lost_focus = f ~= nil and contains(node, f)
+@@ -262,6 +284,98 @@ local function detach(tree, node)
    end
  end
  
@@ -218,14 +250,30 @@ index 7dae2d2..61e186f 100644
  -- A new window splits the focused tile along its larger dimension (dwindle
  -- style): the focused leaf is wrapped in a row (wider) or column (taller) and
  -- the newcomer takes the second half. Every insert therefore adds a level, so
-@@ -274,6 +366,17 @@ function T.add_window(tree, address, label, area)
+@@ -274,6 +388,33 @@ function T.add_window(tree, address, label, area)
      return existing
    end
    local leaf = T.node(tree, "window", { address = address, label = label or "" })
 +  local idst, izone = take_intent(tree, address)
 +  if idst and (izone == "center" or izone == "swap") then
-+    -- a swap has nothing to insert: put the leaf where dst is and send dst to the leaf's usual spot
-+    izone = "right"
++    -- A swap on a re-tiled window: it takes dst's slot, and dst goes to where it used to sit
++    -- (beside the neighbour recorded when it left the tree; if that neighbour is dst itself, beside
++    -- the new leaf).
++    local slot = tree.slots and tree.slots[address]
++    tree.slots = tree.slots or {}
++    tree.slots[address] = nil
++    replace_with(idst, leaf)
++    leaf.weight = idst.weight
++    if tree.viewport == idst then tree.viewport = leaf end
++    local ref, zone = nil, "right"
++    if slot and os.time() - slot.at <= 60 then
++      ref = (slot.addr == idst.address) and leaf or T.find_window(tree, slot.addr)
++      zone = slot.zone
++    end
++    insert_beside(tree, idst, ref or leaf, ref and zone or "right")
++    flatten_root(tree)
++    tree.focused = address
++    return leaf
 +  end
 +  if idst and ZONE_KIND[izone] then
 +    insert_beside(tree, leaf, idst, izone)
@@ -236,7 +284,7 @@ index 7dae2d2..61e186f 100644
    local target = focused_in_view(tree)
    if not target or target.kind ~= "window" then
      if not is_container(tree.viewport) then
-@@ -708,19 +811,55 @@ function T.resize(tree, factor)
+@@ -708,19 +849,55 @@ function T.resize(tree, factor)
    return leaf
  end
  
@@ -294,7 +342,7 @@ index 7dae2d2..61e186f 100644
      if node.kind == "tabs" then
        local c = active_child(node)
        if c and not has_visible(tree, c) then
-@@ -884,6 +1023,8 @@ local function json_node(n, tree, f, names)
+@@ -884,6 +1061,8 @@ local function json_node(n, tree, f, names)
      '"focused":' .. tostring(n == f),
      '"visible":' .. tostring(T.is_visible(tree, n) or (is_container(n) and contains(tree.viewport, n) and has_visible(tree, n))),
    }
@@ -303,7 +351,7 @@ index 7dae2d2..61e186f 100644
    if n.address then parts[#parts + 1] = '"address":' .. json_str(n.address) end
    if n.title then parts[#parts + 1] = '"title":' .. json_str(n.title) end
    if names[n.id] then parts[#parts + 1] = '"framing":' .. json_str(names[n.id]) end
-@@ -921,6 +1062,10 @@ function T.to_json(tree, extra)
+@@ -921,6 +1100,10 @@ function T.to_json(tree, extra)
      '"canForward":' .. tostring(#tree.forward > 0),
      '"tree":' .. json_node(tree.root, tree, f, names),
    }
@@ -404,10 +452,10 @@ index e2ae2ae..7546b1b 100644
  print(string.format("%d passed, %d failed", passed, failed))
  os.exit(failed == 0 and 0 or 1)
 diff --git a/tests/test_tree.lua b/tests/test_tree.lua
-index 880b759..8583671 100644
+index 880b759..9f7c6d6 100644
 --- a/tests/test_tree.lua
 +++ b/tests/test_tree.lua
-@@ -399,5 +399,158 @@ test("tabs with a hidden active child fall back to a visible one", function()
+@@ -399,5 +399,188 @@ test("tabs with a hidden active child fall back to a visible one", function()
    eq(keys(T.layout(t, AREA)), "a,c")
  end)
  
@@ -562,6 +610,36 @@ index 880b759..8583671 100644
 +  t.intent = { src = "w", dst = "gone", zone = "left", at = os.time() }
 +  T.add_window(t, "w", "W", WIDE)
 +  eq(T.find_window(t, "w") ~= nil, true, "target gone: falls back to the normal split")
++end)
++
++test("swap intent on a re-tiled window: it takes the target's slot and the target takes its old one", function()
++  local t = T.new()
++  make(t, "a", "b")                          -- a | b
++  T.remove_window(t, "a")                    -- a is dragged out
++  T.set_intent(t, { src = "a", dst = "b", zone = "center" })
++  T.add_window(t, "a", "A", WIDE)
++  eq(addrs(t.root), "b,a", "a and b swapped")
++  eq(t.focused, "a")
++end)
++
++test("swap intent across the tree: a | (b | c), a dropped on c gives c | (b | a)", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  T.remove_window(t, "a")
++  T.set_intent(t, { src = "a", dst = "c", zone = "center" })
++  T.add_window(t, "a", "A", WIDE)
++  local order = {}
++  for _, l in ipairs(T.windows(t.root)) do order[#order + 1] = l.address end
++  eq(table.concat(order, ","), "c,b,a")
++end)
++
++test("swap intent with no remembered slot still places the window beside the target", function()
++  local t = T.new()
++  make(t, "a", "b")
++  T.set_intent(t, { src = "z", dst = "b", zone = "center" })
++  T.add_window(t, "z", "Z", WIDE)
++  eq(T.find_window(t, "z") ~= nil and T.find_window(t, "b") ~= nil, true)
++  eq(#T.windows(t.root), 3)
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))
