@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Mouse/touch edge handles for the fractal-wm layout.
 #
-#   caelestia-fractal-edges [start|stop|restart]
+#   caelestia-fractal-edges [start|stop|restart|doctor]
 #
 # Runs as its own background Quickshell instance. Needs the fractal layout with
 # integration/fractal-wm-edge-resize.patch applied.
@@ -29,9 +29,34 @@ stop() {
     done
 }
 
+# Print what the overlay depends on, per workspace: which layout Hyprland reports and whether the
+# layout has written a status file for it. Handles need both.
+doctor() {
+    rt="${XDG_RUNTIME_DIR:-/tmp}/fractal-wm"
+    echo "== workspaces (layout reported by Hyprland) =="
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl workspaces -j | jq -r '.[] | "ws \(.id)  name=\(.name)  monitor=\(.monitor)  windows=\(.windows)  tiledLayout=\(.tiledLayout // "(none reported)")"'
+    else
+        hyprctl workspaces -j
+    fi
+    echo
+    echo "== status files in $rt =="
+    ls -l --time-style=+%T "$rt" 2>/dev/null | grep -E 'ws-.*\.json' || echo "(no ws-*.json files)"
+    echo
+    echo "== active workspace per monitor =="
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl monitors -j | jq -r '.[] | "\(.name): ws \(.activeWorkspace.id)"'
+    else
+        hyprctl monitors -j
+    fi
+    echo
+    echo "Handles for a workspace need: tiledLayout = lua:fractal AND a fresh ws-<id>.json."
+}
+
 case "${1:-start}" in
+    doctor) doctor ;;
     start) exec qs -p "$dir" --no-duplicate --daemonize ;;
     stop) stop ;;
     restart) stop; exec qs -p "$dir" --no-duplicate --daemonize ;;
-    *) echo "usage: caelestia-fractal-edges [start|stop|restart]" >&2; exit 2 ;;
+    *) echo "usage: caelestia-fractal-edges [start|stop|restart|doctor]" >&2; exit 2 ;;
 esac
