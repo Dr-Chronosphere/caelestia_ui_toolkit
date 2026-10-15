@@ -69,6 +69,9 @@ ShellRoot {
 
     // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (straight away, as the
     // event fires when it maps, and again after a beat), in case the window rule above is not honoured.
+    property var untiled: ({})
+    readonly property bool debugTile: Quickshell.env("FILES_DEBUG") === "1"
+
     function untile(address: string): void {
         const lua = 'pcall(function() hl.dispatch(hl.dsp.window.float({ action = "off", window = "address:0x' + address + '" })) end)';
         Quickshell.execDetached(["sh", "-c", "hyprctl eval '" + lua + "'; sleep 0.25; hyprctl eval '" + lua + "'"]);
@@ -80,12 +83,18 @@ ShellRoot {
         function onRawEvent(event): void {
             if (event.name === "configreloaded")
                 root.applyTileRule();
-            // openwindow>>ADDRESS,WORKSPACE,CLASS,TITLE (the title may itself contain commas).
-            if (event.name === "openwindow" && root.tile) {
+            // openwindow>>ADDRESS,WORKSPACE,CLASS,TITLE (the title may itself contain commas). The
+            // title is not always set yet when the window opens, so windowtitlev2>>ADDRESS,TITLE is
+            // watched too; each window is un-floated once, so a window you float on purpose stays.
+            if (root.tile && (event.name === "openwindow" || event.name === "windowtitlev2")) {
                 const parts = String(event.data).split(",");
-                const title = parts.slice(3).join(",");
-                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0)
+                const title = parts.slice(event.name === "openwindow" ? 3 : 1).join(",");
+                if (root.debugTile)
+                    console.log("[files] " + event.name + " " + parts[0] + " title=" + title);
+                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0 && !root.untiled[parts[0]]) {
+                    root.untiled[parts[0]] = true;
                     root.untile(parts[0]);
+                }
             }
         }
     }
