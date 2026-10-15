@@ -219,3 +219,23 @@ The overlay's surfaces are `fractal-edges-edge`, `-guide` and `-card`. They deli
 start with `caelestia-`: Caelestia's Hyprland config blurs layers matching `caelestia-.*`, and that
 rule was blurring whatever was behind a card (the live app) as soon as the card was opaque enough to
 pass the rule's alpha cutoff, a sudden pop mid-fade. The overlay's rule also sets `blur = false`.
+
+## Dragging a tile to reposition it
+
+Hyprland floats a tiled window while you drag it and re-tiles it on release; the layout used to put
+it next to the *focused* tile, wherever you dropped it, and showed nothing while you dragged. Now:
+
+1. When a tile floats and the pointer then moves, the overlay polls the pointer
+   (`hyprctl cursorpos -j`, about 30 times a second).
+2. It finds the tile under the pointer and which part of it: its left, right, top or bottom 28%
+   puts the window beside it on that side; the middle swaps the two.
+3. A highlight (`DropHighlight.qml`, namespace `fractal-edges-drop`, click-through) shows where the
+   window will sit, gliding between targets.
+4. It tells the layout (`drop-intent <window> <target> <zone>`, from the patched fractal-wm), so when
+   Hyprland re-tiles the window it lands there. Needs the updated engine patch: re-run
+   `caelestia-fractal-setup install`.
+
+A window you float on purpose (a key bind) sits still and never counts as a drag. `FRACTAL_EDGE_DRAG=off`
+disables all of it; `FRACTAL_EDGE_DEBUG=1` logs `float event …` and `drop target …` lines, which show
+whether Hyprland floats your tile when you drag it (if it doesn't, nothing here fires). Logic and
+tests: `DragDrop.js`, `tests/dragdrop.test.mjs`.

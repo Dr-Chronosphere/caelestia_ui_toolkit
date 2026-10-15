@@ -15,6 +15,7 @@ import Quickshell.Hyprland
 import CaelestiaUI
 import "Seams.js" as Seams
 import "Lod.js" as Lod
+import "DragDrop.js" as DragDrop
 
 ShellRoot {
     id: root
@@ -237,6 +238,7 @@ ShellRoot {
         function onRawEvent(event): void {
             if (event.name === "configreloaded")
                 root.applyLayerRule();
+            root.ddHandleEvent(event.name, String(event.data));
             if (event.name === "workspace" || event.name === "workspacev2" || event.name === "createworkspacev2" || event.name === "focusedmonv2" || event.name === "configreloaded")
                 wsRefresh.restart();
             if (root.floatEvents.indexOf(event.name) >= 0)
@@ -317,6 +319,118 @@ ShellRoot {
             const v = Seams.parseRounding(String(roundingOut.text || ""));
             if (v !== null)
                 root.windowRounding = v;
+        }
+    }
+
+    // --- dragging a tiled window: show where it will land, and tell the layout ------------------
+    // Hyprland floats a tiled window while it is dragged and re-tiles it on release, and the layout
+    // would put it next to the FOCUSED tile. So: when a tile floats and the pointer starts moving,
+    // poll the pointer, find the tile and side under it, highlight where the window would go, and send
+    // the layout a `drop-intent` so the re-tiled window lands exactly there. FRACTAL_EDGE_DRAG=off
+    // disables it.
+    readonly property bool dragDrop: Quickshell.env("FRACTAL_EDGE_DRAG") !== "off"
+    property var ddTracker: DragDrop.create()
+    property var tilesByMon: ({})
+    property string ddDragging: ""
+    property bool ddRunning: false      // the pointer poll (not reactive on the tracker, so tracked here)
+    property string dropMon: ""
+    property var dropRect: null          // {x, y, w, h} in layout coordinates, or null
+    property string dropZone: ""
+    property string intentKey: ""
+    property var lastCursor: ({
+            "x": 0,
+            "y": 0
+        })
+
+    function ddActive(): bool {
+        return dragDrop && (ddTracker.cand !== null || ddTracker.drag !== null);
+    }
+
+    function ddStop(): void {
+        ddDragging = "";
+        dropRect = null;
+        dropMon = "";
+        dropZone = "";
+        intentKey = "";
+    }
+
+    function ddHandleEvent(name: string, data: string): void {
+        if (!dragDrop)
+            return;
+        if (name === "changefloatingmode") {
+            const ev = DragDrop.parseFloatEvent(data);
+            if (!ev)
+                return;
+            const r = DragDrop.floatEvent(ddTracker, ev.address, ev.floating, lastCursor, Date.now());
+            dbg("float event " + ev.address + " floating=" + ev.floating + " -> " + (r || "ignored"));
+            if (r === "end")
+                ddStop();
+            ddRunning = ddActive();
+        } else if (name === "closewindow") {
+            DragDrop.closed(ddTracker, "0x" + String(data).toLowerCase());
+            if (!ddTracker.drag)
+                ddStop();
+            ddRunning = ddActive();
+        }
+    }
+
+    function ddPointer(p): void {
+        lastCursor = p;
+        const r = DragDrop.pointer(ddTracker, p, Date.now());
+        ddDragging = r.drag;
+        ddRunning = ddActive();
+        if (!r.drag) {
+            if (dropRect !== null)
+                ddStop();
+            return;
+        }
+        let hit = null, mon = "";
+        for (const name in tilesByMon) {
+            const t = DragDrop.targetAt(p, tilesByMon[name], r.drag);
+            if (t) {
+                hit = t;
+                mon = name;
+                break;
+            }
+        }
+        const key = hit ? r.drag + ">" + hit.address + ":" + hit.zone : "";
+        if (key !== intentKey) {
+            intentKey = key;
+            const cmd = DragDrop.intentCommand(r.drag, hit);
+            dbg("drop target " + (key || "none"));
+            if (cmd)
+                Hyprland.dispatch("hl.dsp.layout(\"" + cmd + "\")");
+        }
+        dropMon = mon;
+        dropRect = hit ? DragDrop.highlight(hit) : null;
+        dropZone = hit ? hit.zone : "";
+    }
+
+    Timer {
+        id: cursorTimer
+
+        interval: 33
+        repeat: true
+        running: root.ddRunning
+        onTriggered: {
+            if (!cursorProc.running)
+                cursorProc.running = true;
+        }
+    }
+
+    Process {
+        id: cursorProc
+
+        command: ["hyprctl", "cursorpos", "-j"]
+        stdout: StdioCollector {
+            id: cursorOut
+
+            waitForEnd: true
+        }
+        onExited: {
+            const p = DragDrop.parseCursor(String(cursorOut.text || ""));
+            if (p)
+                root.ddPointer(p);
         }
     }
 
@@ -586,6 +700,11 @@ ShellRoot {
             Component.onCompleted: updateBlockers()
 
             onStatusChanged: {
+                const tl = DragDrop.tiles(status);
+                DragDrop.seeTiles(root.ddTracker, tl);
+                const m = Object.assign({}, root.tilesByMon);
+                m[modelData.name] = tl;
+                root.tilesByMon = m;
                 if (root.profile)
                     root.prof.status++;
                 measureTimer.fetched = false;
@@ -679,6 +798,30 @@ ShellRoot {
                         scope.pendingSeam = null;
                         restart();
                     }
+                }
+            }
+
+            // Highlight of where a dragged window will land (click-through).
+            PanelWindow {
+                screen: scope.modelData
+                visible: root.dragDrop && root.dropRect !== null && root.dropMon === scope.modelData.name
+                anchors {
+                    top: true
+                    bottom: true
+                    left: true
+                    right: true
+                }
+                exclusionMode: ExclusionMode.Ignore
+                color: "transparent"
+                mask: Region {}
+                WlrLayershell.namespace: "fractal-edges-drop"
+                WlrLayershell.layer: WlrLayer.Overlay
+
+                DropHighlight {
+                    anchors.fill: parent
+                    shown: root.dropRect !== null
+                    zone: root.dropZone
+                    target: root.dropRect ? Qt.rect(root.dropRect.x - scope.originX, root.dropRect.y - scope.originY, root.dropRect.w, root.dropRect.h) : Qt.rect(0, 0, 0, 0)
                 }
             }
 
