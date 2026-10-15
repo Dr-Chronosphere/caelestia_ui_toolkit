@@ -8,11 +8,12 @@
 --   `fingers` (3) swipe UP            -> zoom-in  (the focused window fills the view)
 --   `fingers` (3) swipe DOWN          -> zoom-out
 --   `special_fingers` (4) swipe up or down -> toggle the special workspace (scratchpad) `special`
+--   `workspace_fingers` (4) swipe left or right -> switch workspace (Hyprland's native workspace swipe)
 --   the same zoom swipes with `mod_fingers` (2) fingers while `mods` are held (mod_fingers = false
 --     to skip)
 --   pinch = true also binds pinch out/in with `fingers` fingers to zoom-in/out (off by default)
---   Horizontal swipes are left alone, so Hyprland's own workspace swipe keeps working. No
---   five-finger gesture is bound.
+--   Set workspace_fingers = false to leave workspace swiping to your own config. No five-finger
+--   gesture is bound.
 --
 -- Touchscreen: Hyprland has no native touchscreen pinch. fractal_keys.lua binds a 3-finger pinch
 -- through the hyprgrass plugin when it is loaded; this file only reports whether it is.
@@ -69,6 +70,8 @@ function M.setup(opts)
   local fingers = opts.fingers or 3
   local special_fingers = opts.special_fingers
   if special_fingers == nil then special_fingers = 4 end
+  local workspace_fingers = opts.workspace_fingers
+  if workspace_fingers == nil then workspace_fingers = 4 end
   local mod_fingers = opts.mod_fingers
   if mod_fingers == nil then mod_fingers = 2 end
   local mods = opts.mods or "SUPER"
@@ -83,6 +86,10 @@ function M.setup(opts)
       local act, how = special_action(special)
       try(special_fingers .. "-finger vertical swipe -> toggle special workspace '" .. special .. "' (" .. how .. ")",
         { fingers = special_fingers, direction = "vertical", action = act })
+    end
+    if workspace_fingers then
+      try(workspace_fingers .. "-finger horizontal swipe -> switch workspace",
+        { fingers = workspace_fingers, direction = "horizontal", action = "workspace" })
     end
     if mod_fingers then
       try(mod_fingers .. "-finger swipe up + " .. mods .. " -> zoom-in",
