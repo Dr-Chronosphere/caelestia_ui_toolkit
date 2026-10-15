@@ -129,7 +129,7 @@ ShellRoot {
     }
 
     Component.onCompleted: {
-        note("app started ", tiling " + (tile ? "on" : "off (FILES_TILE=off)"));
+        note("app started, tiling " + (tile ? "on" : "off (FILES_TILE=off)"));
         applyTileRule();
         model.newWindow(Quickshell.env("FILES_START") || home);
     }
