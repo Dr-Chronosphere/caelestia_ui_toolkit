@@ -668,14 +668,29 @@ ShellRoot {
                 } else {
                     followStable++;
                 }
-                if (followStable >= 3 || Date.now() > followUntil || dragging || sliding) {
+                // While a window is being dragged its card keeps following it (the dragged window is
+                // floating under the pointer; its tile is just a held slot), however long that takes.
+                const carried = root.ddDragging !== "";
+                if (carried)
+                    followUntil = Date.now() + 400;
+                if ((!carried && (followStable >= 3 || Date.now() > followUntil)) || dragging || sliding) {
                     followOn = false;
                     liveRects = ({});
                 }
             }
 
+            // A carried window is sampled as fast as the process round trip allows.
+            Connections {
+                target: root
+
+                function onDdDraggingChanged(): void {
+                    if (root.ddDragging !== "")
+                        scope.startFollow();
+                }
+            }
+
             Timer {
-                interval: 33
+                interval: root.ddDragging !== "" ? 16 : 33
                 repeat: true
                 running: scope.followOn
                 onTriggered: {
@@ -1263,32 +1278,33 @@ ShellRoot {
                         // A card made during a slide is simply there (no fade-in from nothing).
                         startShown: scope.sliding
                         // Glide between the ~30 Hz samples of the window's position.
+                        readonly property int glide: root.ddDragging !== "" ? 18 : 45
                         Behavior on x {
                             enabled: scope.followOn
 
                             NumberAnimation {
-                                duration: 45
+                                duration: cardItem.glide
                             }
                         }
                         Behavior on y {
                             enabled: scope.followOn
 
                             NumberAnimation {
-                                duration: 45
+                                duration: cardItem.glide
                             }
                         }
                         Behavior on width {
                             enabled: scope.followOn
 
                             NumberAnimation {
-                                duration: 45
+                                duration: cardItem.glide
                             }
                         }
                         Behavior on height {
                             enabled: scope.followOn
 
                             NumberAnimation {
-                                duration: 45
+                                duration: cardItem.glide
                             }
                         }
                         shown: !geo.leaving
