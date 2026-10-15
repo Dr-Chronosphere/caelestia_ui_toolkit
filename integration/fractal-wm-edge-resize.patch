@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..985c02b 100644
+index f4f204f..8fceb7b 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -197,7 +197,7 @@ index f4f204f..985c02b 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -377,12 +497,39 @@ end
+@@ -377,12 +497,44 @@ end
  
  -- --------------------------------------------------------------- provider --
  
@@ -205,17 +205,22 @@ index f4f204f..985c02b 100644
 +-- other tiles do not reflow. `exists` asks the compositor; if the window object does not say it is
 +-- floating, treat it as gone (closed windows must never leave a gap). A pass is scheduled to let a
 +-- phantom go if nothing holds it.
-+local warned_floating = false
++-- Does this window still exist (a table from hl.get_window)? A closed window does not, so it is
++-- detached at once. Anything that still exists but is not in the live list is held (a dragged window
++-- being floated; one sent to another workspace is released after the grace period). We do NOT ask
++-- whether it is floating: Hyprland removes a window from the layout BEFORE it flags it floating, so
++-- that check misses exactly when it matters (the tiles would reflow). Decisions are logged to
++-- fractal.log (a line per window per change) to diagnose a hold that does not take.
++local last_exists = {}
 +local function window_floating(address)
 +  local ok, w = pcall(hl.get_window, "address:" .. address)
-+  if not (ok and type(w) == "table") then return false end
-+  if w.floating == nil and not warned_floating then
-+    -- Without the field a floated window cannot be told from one that merely left this workspace;
-+    -- it is treated as floated (held for the grace period). Written once to fractal.log.
-+    warned_floating = true
-+    log("window objects have no `floating` field: any window that still exists is held briefly")
++  local exists = ok and type(w) == "table"
++  if last_exists[address] ~= exists then
++    last_exists[address] = exists
++    log("sync: %s not in the live list: get_window -> %s%s", address, exists and "exists" or "gone",
++      exists and (" (floating=" .. tostring(w.floating) .. ")") or "")
 +  end
-+  return w.floating ~= false
++  return exists
 +end
 +
 +local function sync_opts(tree)
@@ -238,7 +243,7 @@ index f4f204f..985c02b 100644
      refresh_focus(tree)
      apply(tree, ctx)
      save(ws, tree)
-@@ -402,12 +549,12 @@ function M.layout_msg(ctx, msg)
+@@ -402,12 +554,12 @@ function M.layout_msg(ctx, msg)
        tree = T.new({ desktop = M.desktop })
        M.trees[ws] = tree
      end
@@ -253,7 +258,7 @@ index f4f204f..985c02b 100644
      write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
-@@ -430,7 +577,7 @@ function M.setup(opts)
+@@ -430,7 +582,7 @@ function M.setup(opts)
    M.name = opts.name or "fractal"
    M.desktop = opts.desktop == true
    M.notify = opts.notify ~= false

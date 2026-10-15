@@ -5,7 +5,7 @@ import vm from "node:vm";
 const src = readFileSync(new URL("../Lod.js", import.meta.url), "utf8").replace(".pragma library", "");
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,thresholds,iconSize,showLabel,initial,scaleOf,alphaFor,alphaOut,nextAlpha,reconcile,purge};", ctx);
+vm.runInContext(src + "\nthis.L={smallWindows,intersects,cards,thresholds,iconSize,showLabel,initial,scaleOf,alphaFor,alphaOut,nextAlpha,boxRects,addFrom,reconcile,purge};", ctx);
 const L = ctx.L;
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -143,6 +143,23 @@ assert.equal(nx({ mode: "out" }, 1.0).alpha, 1, "shrinking back mid fade-out ret
   assert.ok(own.some(k => k.address === "c"), "c's card stays while c itself floats over it");
   const other = plain(L.cards(status, [{ x: 650, y: 400, w: 400, h: 500, address: "zzz" }], { minW: 350, minH: 100 }));
   assert.ok(!other.some(k => k.address === "c"), "another window floating over it still hides it");
+}
+// fading cards follow their window's size; new cards start from the window's previous size
+{
+  const rects = plain(L.boxRects(status, { inset: 0, outset: 0 }));
+  assert.equal(Object.keys(rects).length, 4, "a rect for every window");
+  assert.deepEqual([rects.c.x, rects.c.y, rects.c.w, rects.c.h], [700, 440, 300, 400]);
+  const prevMap = { k1: { id: "k1", address: "c", x: 10, y: 10, w: 100, h: 100, alpha: 1 } };
+  const out = L.reconcile(prevMap, [], [], 1000, rects);
+  assert.equal(out.map.k1.leaving, true);
+  assert.deepEqual([out.map.k1.x, out.map.k1.w], [700, 300], "the fading card took the window's current rect");
+  const noRect = L.reconcile(prevMap, [], [], 1000, {});
+  assert.equal(noRect.map.k1.x, 10, "no rect for the window (parked): the card stays where it was");
+  const fresh = [{ id: "n1", address: "c", x: 700, y: 440, w: 300, h: 400 }, { id: "n2", address: "d", x: 5, y: 5, w: 50, h: 50 }];
+  const withFrom = plain(L.addFrom(fresh, {}, { c: { x: 100, y: 40, w: 1200, h: 800 }, d: { x: 5, y: 5, w: 50, h: 50 } }));
+  assert.deepEqual(withFrom[0].fromRect, { x: 100, y: 40, w: 1200, h: 800 }, "starts from the window's earlier, larger rect");
+  assert.equal(withFrom[1].fromRect, undefined, "unchanged rect: no from");
+  assert.equal(plain(L.addFrom(fresh, { n1: {} }, { c: { x: 0, y: 0, w: 1, h: 1 } }))[0].fromRect, undefined, "existing cards are not restarted");
 }
 console.log("hysteresis ok");
 assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100, idle: true }))[0].settle, true); assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100 }))[0].settle, false);

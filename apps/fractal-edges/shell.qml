@@ -840,6 +840,10 @@ ShellRoot {
                 }
             }
 
+            // The card rect of every window at the previous status (so a card for a window that has just
+            // become small can start from its larger size).
+            property var prevRects: ({})
+
             function rebuildCards(): void {
                 // Cards match where real windows sit inside their tiles (measured, so any gaps or
                 // border setting works); FRACTAL_CARD_PAD grows (+) or shrinks (-) them further.
@@ -863,9 +867,12 @@ ShellRoot {
                     opts.minH = root.iconMinH;
                 const t0 = Date.now();
                 const on = root.iconsEnabled && fractalActive && status;
-                const fresh = on ? Lod.cards(status, blockers, opts) : [];
+                const rects = on ? Lod.boxRects(status, opts) : ({});
+                const fresh = on ? Lod.addFrom(Lod.cards(status, blockers, opts), cardMap, prevRects) : [];
                 const unblocked = on ? Lod.cards(status, [], opts).map(c => c.id) : [];
-                applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now()));
+                applyCards(Lod.reconcile(cardMap, fresh, unblocked, Date.now(), rects));
+                if (on)
+                    prevRects = rects;
                 if (root.profile) {
                     const ms = Date.now() - t0;
                     root.prof.rebuilds++;
@@ -1270,7 +1277,12 @@ ShellRoot {
 
                         // While a transition is under way the card tracks its window's current rect.
                         readonly property var live: scope.followOn ? scope.liveRects[geo.address] : undefined
-                        readonly property var rect: live ? Follow.cardFromLive(live, root.cardOutset) : geo
+                        // A new card for a window that just changed size starts from that size and then
+                        // eases to its own (the move animation below), so it shrinks with the window.
+                        property bool started: false
+                        readonly property var base: (geo.fromRect && !started) ? geo.fromRect : geo
+                        readonly property var rect: live ? Follow.cardFromLive(live, root.cardOutset) : base
+                        Component.onCompleted: Qt.callLater(() => cardItem.started = true)
                         readonly property var slide: scope.sliding ? Follow.slideOffset(scope.slideDir, scope.slideStyle, true, scope.slideT, scope.modelData.width, scope.modelData.height) : ({
                                 "x": 0,
                                 "y": 0

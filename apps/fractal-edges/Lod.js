@@ -141,6 +141,41 @@ function cards(status, blockers, opts) {
     return out;
 }
 
+// The card rect every window's tile would have, small or not: { address: {x,y,w,h} }. Same options
+// as cards(). Used to keep a fading card on its window while the window grows (zoom in) and to start
+// a new card from the window's previous size (zoom out).
+function boxRects(status, opts) {
+    opts = opts || {};
+    var inset = opts.inset === undefined ? 0 : opts.inset;
+    var outset = opts.outset === undefined ? 0 : opts.outset;
+    var out = {};
+    if (!status || !status.tree)
+        return out;
+    (function walk(n) {
+        if (n.kind === "window" && n.address && n.box)
+            out[n.address] = cardRect(n.box, status.area, inset, outset, opts.bounds);
+        (n.children || []).forEach(walk);
+    })(status.tree);
+    return out;
+}
+
+// Cards that did not exist before, for a window that did have a (different) rect, remember it as
+// `fromRect`, so the card can grow or shrink from there instead of appearing at its final size.
+function addFrom(fresh, prev, prevRects) {
+    return fresh.map(function (c) {
+        if (prev[c.id] || !prevRects || !prevRects[c.address])
+            return c;
+        var from = prevRects[c.address];
+        if (Math.abs(from.x - c.x) < 3 && Math.abs(from.y - c.y) < 3 && Math.abs(from.w - c.w) < 3 && Math.abs(from.h - c.h) < 3)
+            return c;
+        var copy = {};
+        for (var k in c)
+            copy[k] = c[k];
+        copy.fromRect = from;
+        return copy;
+    });
+}
+
 // Icon edge length in px for a card of this size: half the short side, within sensible bounds.
 function iconSize(w, h) {
     return Math.max(16, Math.min(64, Math.round(Math.min(w, h) * 0.5)));
@@ -163,7 +198,7 @@ function initial(label) {
 // never be drawn over that window); one that vanished because its tile grew (or the window closed)
 // is kept as `leaving` so it can fade out. `now` is a ms clock.
 // Returns { map, keys }, with keys in a stable (sorted) order.
-function reconcile(prev, fresh, unblocked, now) {
+function reconcile(prev, fresh, unblocked, now, rects) {
     var map = {};
     var i;
     for (i = 0; i < fresh.length; i++)
@@ -178,6 +213,13 @@ function reconcile(prev, fresh, unblocked, now) {
         for (var k in old)
             copy[k] = old[k];
         copy.leaving = true;
+        // keep a fading card on its window while the window changes size (zoom in)
+        if (rects && old.address && rects[old.address]) {
+            copy.x = rects[old.address].x;
+            copy.y = rects[old.address].y;
+            copy.w = rects[old.address].w;
+            copy.h = rects[old.address].h;
+        }
         copy.leaveAt = old.leaving ? old.leaveAt : now;  // keep the original time while fading
         copy.alpha = 0;
         map[id] = copy;
