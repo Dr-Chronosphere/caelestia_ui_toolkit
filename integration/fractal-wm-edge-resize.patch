@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..1f8f919 100644
+index f4f204f..c214ae5 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -59,19 +59,21 @@ index f4f204f..1f8f919 100644
    local pw, ph = math.max(200, math.floor(area.w / 3)), math.max(150, math.floor(area.h / 3))
    -- Remember each window's last visible box: a parked window keeps that size,
    -- so its app does not reflow and the map's thumbnail still shows it as it was.
-@@ -263,8 +297,11 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+@@ -263,8 +297,13 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
    split row|column|tabs      wrap the focused window so the next one opens beside it
    layout row|column|tabs|next  change the container around the focused window
    move left|right|up|down    move the focused window, i3-style
 +  place <src> <dst> <zone>   move window src beside dst (left|right|up|down), or swap (center)
-+  drop-intent <src> <dst> <zone> | clear   where src goes when the compositor re-tiles it after a drag
++  drag-hold <address>        keep a floated (dragged) window's slot so the other tiles do not reflow
++  drop-intent <src> <dst|screen> <zone> | clear   where src goes when the compositor re-tiles it after a drag
++                             (zones: left right up down center; with screen: sleft sright sup sdown qtl qtr qbl qbr)
    tab next|prev              cycle a tabs container
    grow | shrink              change the focused window's share
 +  edge <id> <id> <ratio>     move the edge between two adjacent siblings (first gets ratio of their space)
    desktop on|off             add or remove the wallpaper leaf
    reset                      rebuild the tree from the live windows
    tree | status | help]]
-@@ -346,6 +383,23 @@ local function handle(tree, msg)
+@@ -346,6 +385,28 @@ local function handle(tree, msg)
      local dir = DIRS[(arg or ""):lower()]
      if not dir then return "usage: move left|right|up|down" end
      return T.move(tree, dir) and ("moved " .. dir) or "can't move that way"
@@ -81,6 +83,11 @@ index f4f204f..1f8f919 100644
 +    local src, dst, zone = words[2], words[3], (words[4] or ""):lower()
 +    if not (src and dst and zone ~= "") then return "usage: place <src> <dst> left|right|up|down|center" end
 +    return T.place(tree, src, dst, zone) and ("placed " .. src .. " " .. zone .. " of " .. dst) or "can't place that"
++  elseif cmd == "drag-hold" then
++    -- drag-hold <address>: keep this window's slot while it is floated for a drag (no reflow)
++    if not words[2] then return "usage: drag-hold <address>" end
++    T.hold(tree, words[2])
++    return "holding " .. words[2]
 +  elseif cmd == "drop-intent" then
 +    -- drop-intent <src> <dst> <zone>: when window <src> is next added (the compositor re-tiles a
 +    -- dragged window), put it beside <dst> instead of at the focused tile. `drop-intent clear` cancels.
@@ -95,7 +102,7 @@ index f4f204f..1f8f919 100644
    elseif cmd == "tab" then
      local delta = (arg == "prev" or arg == "previous") and -1 or 1
      return T.tab_cycle(tree, delta) and "tab switched" or "no tabs container in view"
-@@ -353,6 +407,10 @@ local function handle(tree, msg)
+@@ -353,6 +414,10 @@ local function handle(tree, msg)
      return T.resize(tree, 1.15) and "grew" or "nothing to resize"
    elseif cmd == "shrink" then
      return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
@@ -106,7 +113,46 @@ index f4f204f..1f8f919 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -407,7 +465,7 @@ function M.layout_msg(ctx, msg)
+@@ -377,12 +442,31 @@ end
+ 
+ -- --------------------------------------------------------------- provider --
+ 
++-- A window that was floated (while you drag a tile) still exists: keep its slot for a moment so the
++-- other tiles do not reflow. `exists` asks the compositor; if the window object does not say it is
++-- floating, treat it as gone (closed windows must never leave a gap). A pass is scheduled to let a
++-- phantom go if nothing holds it.
++local function window_floating(address)
++  local ok, w = pcall(hl.get_window, "address:" .. address)
++  return ok and type(w) == "table" and w.floating == true
++end
++
++local function sync_opts(tree)
++  if tree.resync then
++    tree.resync = nil
++    pcall(hl.timer, function()
++      pcall(hl.dispatch, hl.dsp.layout("status"))
++    end, { timeout = 1300, type = "oneshot" })
++  end
++  return { exists = window_floating }
++end
++
+ function M.recalculate(ctx)
+   local ok, err = pcall(function()
+     if #ctx.targets == 0 then return end
+     local ws = ws_of(ctx)
+     local tree = tree_for(ws)
+-    T.sync(tree, live_windows(ctx), ctx.area)
++    T.sync(tree, live_windows(ctx), ctx.area, sync_opts(tree))
+     refresh_focus(tree)
+     apply(tree, ctx)
+     save(ws, tree)
+@@ -402,12 +486,12 @@ function M.layout_msg(ctx, msg)
+       tree = T.new({ desktop = M.desktop })
+       M.trees[ws] = tree
+     end
+-    T.sync(tree, live_windows(ctx), ctx.area)
++    T.sync(tree, live_windows(ctx), ctx.area, sync_opts(tree))
+     refresh_focus(tree)
      local before = tree.focused
      reply = handle(tree, msg)
      apply(tree, ctx)
@@ -116,7 +162,7 @@ index f4f204f..1f8f919 100644
      if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
      if M.notify and reply and not reply:find("\n") then notify(reply) end
 diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
-index 7dae2d2..73aae46 100644
+index 7dae2d2..4ceaeb3 100644
 --- a/lua/fractal_tree.lua
 +++ b/lua/fractal_tree.lua
 @@ -232,9 +232,31 @@ local function wrap(tree, node, kind)
@@ -151,7 +197,7 @@ index 7dae2d2..73aae46 100644
    remove(parent, node)
    local f = focused_node(tree)
    local lost_focus = f ~= nil and contains(node, f)
-@@ -262,6 +284,98 @@ local function detach(tree, node)
+@@ -262,6 +284,182 @@ local function detach(tree, node)
    end
  end
  
@@ -242,19 +288,108 @@ index 7dae2d2..73aae46 100644
 +  if not it or it.src ~= address then return nil end
 +  tree.intent = nil
 +  if os.time() - (it.at or 0) > (it.ttl or 20) then return nil end
++  if it.dst == "screen" then return "screen", it.zone end
 +  local dst = T.find_window(tree, it.dst)
 +  if not dst then return nil end
 +  return dst, it.zone
 +end
 +
++-- Put `leaf` against a screen edge, whatever the existing windows are. Zones:
++--   sleft sright sup sdown   a half of the screen; the existing windows share the other half
++--   qtl qtr qbl qbr          a quadrant: the leaf takes the corner; the other windows are split in two
++--                            groups, one under/over it in the same half, one filling the other half
++-- With fewer than two other windows a quadrant is just the half on that side. `leaf` is already
++-- detached from the tree.
++local SCREEN_HALF = { sleft = { "row", true }, sright = { "row", false }, sup = { "column", true }, sdown = { "column", false } }
++local QUAD = { qtl = { left = true, top = true }, qtr = { left = false, top = true }, qbl = { left = true, top = false }, qbr = { left = false, top = false } }
++
++local function place_at_screen_edge(tree, leaf, zone)
++  local root = tree.root
++  local others = { table.unpack(root.children) }
++  if #others == 0 then
++    add(root, leaf)
++    return
++  end
++  local q = QUAD[zone]
++  if q and #others < 2 then
++    zone = q.left and "sleft" or "sright"
++    q = nil
++  end
++  if SCREEN_HALF[zone] then
++    local kind, first = SCREEN_HALF[zone][1], SCREEN_HALF[zone][2]
++    if root.kind == kind then
++      local sum = 0
++      for _, c in ipairs(others) do sum = sum + (c.weight or 1) end
++      leaf.weight = sum                               -- the leaf takes exactly half
++      add(root, leaf, first and 1 or nil)
++    else
++      local container = wrap(tree, root, root.kind)   -- the existing windows become one block
++      root.kind = kind
++      container.weight = 1.0
++      leaf.weight = 1.0
++      add(root, leaf, first and 1 or nil)
++    end
++    return
++  end
++  if not q then return end
++  local n = #others
++  local lcount = math.max(1, n // 2)
++  -- the group beside the leaf's column (full height) and the group in the leaf's column
++  local own, rest = {}, {}
++  if q.left then
++    for i, c in ipairs(others) do if i <= lcount then own[#own + 1] = c else rest[#rest + 1] = c end end
++  else
++    for i, c in ipairs(others) do if i > n - lcount then own[#own + 1] = c else rest[#rest + 1] = c end end
++  end
++  for _, c in ipairs(others) do remove(root, c) end
++  local function block(list)
++    if #list == 1 then
++      list[1].weight = 1.0
++      return list[1]
++    end
++    local b = T.node(tree, "row")
++    for _, c in ipairs(list) do add(b, c) end
++    b.weight = 1.0
++    return b
++  end
++  local col = T.node(tree, "column")
++  leaf.weight = 1.0
++  local cell = block(own)
++  if q.top then add(col, leaf); add(col, cell) else add(col, cell); add(col, leaf) end
++  col.weight = 1.0
++  local big = block(rest)
++  root.kind = "row"
++  if q.left then add(root, col); add(root, big) else add(root, big); add(root, col) end
++  if tree.viewport ~= root and not T.contains(root, tree.viewport) then tree.viewport = root end
++end
++
++function T.place_screen(tree, src, zone)
++  local leaf = T.find_window(tree, src)
++  if not leaf or not (SCREEN_HALF[zone] or QUAD[zone]) then return false end
++  local parent = leaf.parent
++  remove(parent, leaf)
++  if tree.viewport == leaf then tree.viewport = parent end
++  collapse(tree, parent)
++  flatten_root(tree)
++  tree.viewport = tree.root
++  place_at_screen_edge(tree, leaf, zone)
++  tree.focused = src
++  return true
++end
++
  -- A new window splits the focused tile along its larger dimension (dwindle
  -- style): the focused leaf is wrapped in a row (wider) or column (taller) and
  -- the newcomer takes the second half. Every insert therefore adds a level, so
-@@ -274,6 +388,33 @@ function T.add_window(tree, address, label, area)
+@@ -274,6 +472,38 @@ function T.add_window(tree, address, label, area)
      return existing
    end
    local leaf = T.node(tree, "window", { address = address, label = label or "" })
 +  local idst, izone = take_intent(tree, address)
++  local screen_zone
++  if idst == "screen" then
++    -- a screen-edge drop: add the window by the usual split first, then move it to the edge
++    screen_zone, idst = izone, nil
++  end
 +  if idst and (izone == "center" or izone == "swap") then
 +    -- A swap on a re-tiled window: it takes dst's slot, and dst goes to where it used to sit
 +    -- (beside the neighbour recorded when it left the tree; if that neighbour is dst itself, beside
@@ -284,7 +419,89 @@ index 7dae2d2..73aae46 100644
    local target = focused_in_view(tree)
    if not target or target.kind ~= "window" then
      if not is_container(tree.viewport) then
-@@ -708,19 +849,55 @@ function T.resize(tree, factor)
+@@ -315,6 +545,7 @@ function T.add_window(tree, address, label, area)
+     if mask_count(tree.mask) >= #T.windows(tree.viewport) then tree.mask = nil end
+   end
+   tree.focused = address
++  if screen_zone then T.place_screen(tree, address, screen_zone) end
+   return leaf
+ end
+ 
+@@ -338,19 +569,70 @@ function T.set_focus(tree, address)
+ end
+ 
+ -- Make the tree match the set of live windows: { {address=, label=}, ... } in order.
+-function T.sync(tree, live, area)
++-- Make the tree match the set of live windows: { {address=, label=}, ... } in order.
++-- opts: { exists = function(address) -> bool, now = seconds, grace = seconds, held_ttl = seconds }.
++-- A window that is not live but still `exists` (the compositor floated it, as it does while you drag
++-- a tile) keeps its slot as a phantom for `grace` seconds, and for as long as it is held (`drag-hold`,
++-- up to `held_ttl`), so the other tiles do not reflow while you drag; when it comes back it returns
++-- to that slot, or goes where a drop intent says. Without `exists`, a missing window is detached at
++-- once (a closed window must never leave a gap).
++function T.sync(tree, live, area, opts)
++  opts = opts or {}
++  local now = opts.now or os.time()
++  local grace = opts.grace or 1
++  local held_ttl = opts.held_ttl or 30
+   local present = {}
+   for _, entry in ipairs(live) do present[entry.address] = true end
++  tree.missing = tree.missing or {}
++  tree.held = tree.held or {}
+   for _, leaf in ipairs(T.windows(tree.root)) do
+-    if not present[leaf.address] then detach(tree, leaf) end
++    local a = leaf.address
++    if not present[a] then
++      local keep = false
++      if opts.exists and opts.exists(a) then
++        local m = tree.missing[a]
++        if not m then
++          m = { since = now }
++          tree.missing[a] = m
++          tree.resync = true            -- the glue schedules a pass to release it if nothing holds it
++        end
++        local h = tree.held[a]
++        keep = (h ~= nil and now - h <= held_ttl) or (now - m.since < grace)
++      end
++      if not keep then
++        tree.missing[a] = nil
++        tree.held[a] = nil
++        detach(tree, leaf)
++      end
++    end
+   end
+   for _, entry in ipairs(live) do
+     local leaf = T.find_window(tree, entry.address)
+-    if not leaf then leaf = T.add_window(tree, entry.address, entry.label, area) end
++    if not leaf then
++      leaf = T.add_window(tree, entry.address, entry.label, area)
++    elseif tree.missing[entry.address] then
++      -- back from a float: return to the slot, or move where the drop was aimed
++      tree.missing[entry.address] = nil
++      tree.held[entry.address] = nil
++      local it = tree.intent
++      if it and it.src == entry.address then
++        tree.intent = nil
++        if os.time() - (it.at or 0) <= (it.ttl or 20) then
++          if it.dst == "screen" then T.place_screen(tree, entry.address, it.zone)
++          else T.place(tree, entry.address, it.dst, it.zone) end
++        end
++      end
++    end
+     if entry.title ~= nil then leaf.title = entry.title end
+   end
+ end
+ 
++-- Hold `address`'s slot while it is floated (a drag in progress).
++function T.hold(tree, address, now)
++  tree.held = tree.held or {}
++  tree.held[address] = now or os.time()
++end
++
+ -- ------------------------------------------------------- viewport (zoom) --
+ 
+ local function mask_list(mask)
+@@ -708,19 +990,55 @@ function T.resize(tree, factor)
    return leaf
  end
  
@@ -342,7 +559,7 @@ index 7dae2d2..73aae46 100644
      if node.kind == "tabs" then
        local c = active_child(node)
        if c and not has_visible(tree, c) then
-@@ -884,6 +1061,8 @@ local function json_node(n, tree, f, names)
+@@ -884,6 +1202,8 @@ local function json_node(n, tree, f, names)
      '"focused":' .. tostring(n == f),
      '"visible":' .. tostring(T.is_visible(tree, n) or (is_container(n) and contains(tree.viewport, n) and has_visible(tree, n))),
    }
@@ -351,7 +568,7 @@ index 7dae2d2..73aae46 100644
    if n.address then parts[#parts + 1] = '"address":' .. json_str(n.address) end
    if n.title then parts[#parts + 1] = '"title":' .. json_str(n.title) end
    if names[n.id] then parts[#parts + 1] = '"framing":' .. json_str(names[n.id]) end
-@@ -921,6 +1100,10 @@ function T.to_json(tree, extra)
+@@ -921,6 +1241,10 @@ function T.to_json(tree, extra)
      '"canForward":' .. tostring(#tree.forward > 0),
      '"tree":' .. json_node(tree.root, tree, f, names),
    }
@@ -363,10 +580,10 @@ index 7dae2d2..73aae46 100644
      parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
    end
 diff --git a/tests/test_glue.lua b/tests/test_glue.lua
-index e2ae2ae..7546b1b 100644
+index e2ae2ae..2233676 100644
 --- a/tests/test_glue.lua
 +++ b/tests/test_glue.lua
-@@ -236,5 +236,84 @@ test("last visible sizes are forgotten when windows close", function()
+@@ -236,5 +236,111 @@ test("last visible sizes are forgotten when windows close", function()
    eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
  end)
  
@@ -449,13 +666,40 @@ index e2ae2ae..7546b1b 100644
 +  eq(reply(), "intent cleared")
 +end)
 +
++test("a floated window keeps its slot (others do not reflow) and drag-hold/intent commands work", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  local real_get = hl.get_window
++  hl.get_window = function(sel) return { address = sel:gsub("^address:", ""), floating = true } end
++  local before = fmt(ctx_for({ A, B, C }).area and { x = 0, y = 0, w = 0, h = 0 } or {})
++  local c2 = ctx_for({ A, C })
++  provider.recalculate(c2)                                   -- b floated for a drag
++  local tree = _G.__fractal.impl.trees["9"]
++  eq(require("hypr.fractal_tree").find_window(tree, "0xb") ~= nil, true, "b's slot is kept")
++  provider.layout_msg(ctx_for({ A, C }), "drag-hold 0xb")
++  eq(reply(), "holding 0xb")
++  provider.layout_msg(ctx_for({ A, C }), "drag-hold")
++  eq(reply():match("^usage"), "usage")
++  provider.layout_msg(ctx_for({ A, C }), "drop-intent 0xb screen sleft")
++  eq(reply(), "intent set")
++  local c3 = ctx_for({ A, B, C })
++  provider.recalculate(c3)                                   -- b dropped at the screen's left edge
++  eq(fmt(c3.placed["0xb"]), "0,0,600,800", "b is the left half")
++  hl.get_window = real_get
++  -- a window that no longer exists (closed) leaves at once
++  provider.recalculate(ctx_for({ A, C }))
++  eq(require("hypr.fractal_tree").find_window(_G.__fractal.impl.trees["9"], "0xb"), nil, "closed: no gap")
++end)
++
  print(string.format("%d passed, %d failed", passed, failed))
  os.exit(failed == 0 and 0 or 1)
 diff --git a/tests/test_tree.lua b/tests/test_tree.lua
-index 880b759..9f7c6d6 100644
+index 880b759..ba42860 100644
 --- a/tests/test_tree.lua
 +++ b/tests/test_tree.lua
-@@ -399,5 +399,188 @@ test("tabs with a hidden active child fall back to a visible one", function()
+@@ -399,5 +399,324 @@ test("tabs with a hidden active child fall back to a visible one", function()
    eq(keys(T.layout(t, AREA)), "a,c")
  end)
  
@@ -640,6 +884,142 @@ index 880b759..9f7c6d6 100644
 +  T.add_window(t, "z", "Z", WIDE)
 +  eq(T.find_window(t, "z") ~= nil and T.find_window(t, "b") ~= nil, true)
 +  eq(#T.windows(t.root), 3)
++end)
++
++-- ------------------------------------------------------------ floated windows keep their slot --
++
++local function live(...) local l = {} for _, a in ipairs({ ... }) do l[#l + 1] = { address = a, label = a:upper() } end return l end
++
++test("a floated window keeps its slot (no reflow) for the grace period, then is released", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  local floated = { b = true }
++  local opts = { exists = function(a) return floated[a] == true end, now = 100, grace = 1 }
++  local before = keys(T.layout(t, WIDE))
++  T.sync(t, live("a", "c"), WIDE, opts)
++  eq(keys(T.layout(t, WIDE)), before, "b's slot is still in the tree: the others did not reflow")
++  eq(T.find_window(t, "b") ~= nil, true)
++  opts.now = 100.5
++  T.sync(t, live("a", "c"), WIDE, opts)
++  eq(T.find_window(t, "b") ~= nil, true, "still within the grace period")
++  opts.now = 102
++  T.sync(t, live("a", "c"), WIDE, opts)
++  eq(T.find_window(t, "b"), nil, "released once the grace is over (a window floated on purpose)")
++end)
++
++test("a held window keeps its slot beyond the grace, until its ttl", function()
++  local t = T.new()
++  make(t, "a", "b")
++  local opts = { exists = function() return true end, now = 100, grace = 1, held_ttl = 30 }
++  T.sync(t, live("a"), WIDE, opts)
++  T.hold(t, "b", 100)
++  opts.now = 110
++  T.sync(t, live("a"), WIDE, opts)
++  eq(T.find_window(t, "b") ~= nil, true, "held: kept")
++  opts.now = 140
++  T.sync(t, live("a"), WIDE, opts)
++  eq(T.find_window(t, "b"), nil, "ttl over: released")
++end)
++
++test("a closed window (does not exist) is detached at once, never a gap", function()
++  local t = T.new()
++  make(t, "a", "b")
++  T.sync(t, live("a"), WIDE, { exists = function() return false end, now = 100 })
++  eq(T.find_window(t, "b"), nil)
++  T.sync(t, live("a", "c"), WIDE)               -- no opts: the original behaviour
++  eq(T.find_window(t, "c") ~= nil, true)
++end)
++
++test("a floated window that returns goes back to its own slot, or where the intent says", function()
++  local t = T.new()
++  make(t, "a", "b", "c")                          -- a | (b | c)
++  local opts = { exists = function() return true end, now = 100 }
++  T.sync(t, live("a", "c"), WIDE, opts)           -- b floated
++  T.sync(t, live("a", "b", "c"), WIDE, opts)      -- b back, no intent
++  local order = {}
++  for _, l in ipairs(T.windows(t.root)) do order[#order + 1] = l.address end
++  eq(table.concat(order, ","), "a,b,c", "back in place")
++  T.sync(t, live("a", "c"), WIDE, opts)           -- floated again
++  T.set_intent(t, { src = "b", dst = "a", zone = "center" })
++  T.sync(t, live("a", "b", "c"), WIDE, opts)      -- dropped on a: a real swap
++  order = {}
++  for _, l in ipairs(T.windows(t.root)) do order[#order + 1] = l.address end
++  eq(table.concat(order, ","), "b,a,c", "a and b swapped")
++end)
++
++-- ------------------------------------------------------------ screen-edge placement --
++
++local function order_of(t) local o = {} for _, l in ipairs(T.windows(t.root)) do o[#o + 1] = l.address end return table.concat(o, ",") end
++
++test("screen halves: a window dropped on the left edge takes exactly half, whatever the rest looked like", function()
++  local t = T.new()
++  make(t, "a", "b", "c")                          -- a | (b | c): a row of three tiles
++  eq(T.place_screen(t, "c", "sleft"), true)
++  local b = T.layout(t, WIDE)
++  eq(b.c.x, 0); eq(math.floor(b.c.w + 0.5), 684, "c is half the width")
++  eq(math.floor(b.a.w + b.b.w + 0.5), 684, "the rest share the other half")
++  eq(b.c.h, WIDE.h, "full height")
++  eq(T.place_screen(t, "a", "sdown"), true)
++  b = T.layout(t, WIDE)
++  eq(b.a.y > 0, true, "a is the bottom half")
++  eq(math.floor(b.a.h + 0.5), 443)
++  eq(math.floor(b.a.w + 0.5), WIDE.w)
++end)
++
++test("screen halves work from a column state too (all-vertical to a left/right split)", function()
++  local t = T.new()
++  make(t, "a", "b")
++  T.place(t, "b", "a", "down")                     -- a over b
++  eq(t.root.kind, "column")
++  eq(T.place_screen(t, "b", "sright"), true)
++  local b = T.layout(t, WIDE)
++  eq(math.floor(b.b.x + 0.5), 684); eq(math.floor(b.b.w + 0.5), 684); eq(b.a.x, 0); eq(b.b.h, WIDE.h)
++end)
++
++test("screen quadrants: the window takes a corner, the others fill the rest", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  eq(T.place_screen(t, "c", "qtl"), true)
++  local b = T.layout(t, WIDE)
++  eq(b.c.x, 0); eq(b.c.y, 0)
++  eq(math.floor(b.c.w + 0.5), 684, "a quarter: half the width"); eq(math.floor(b.c.h + 0.5), 443, "and half the height")
++  local t2 = T.new()
++  make(t2, "a", "b", "c", "d")
++  eq(T.place_screen(t2, "d", "qbr"), true)
++  b = T.layout(t2, WIDE)
++  eq(math.floor(b.d.x + 0.5), 684); eq(math.floor(b.d.y + 0.5), 443); eq(math.floor(b.d.w + 0.5), 684); eq(math.floor(b.d.h + 0.5), 443)
++  local covered = 0
++  for _, a in ipairs({ "a", "b", "c", "d" }) do covered = covered + b[a].w * b[a].h end
++  eq(math.floor(covered + 0.5), WIDE.w * WIDE.h, "the four windows tile the screen exactly")
++end)
++
++test("a quadrant with fewer than two other windows is just the half on that side", function()
++  local t = T.new()
++  make(t, "a", "b")
++  eq(T.place_screen(t, "b", "qtr"), true)
++  local b = T.layout(t, WIDE)
++  eq(math.floor(b.b.x + 0.5), 684); eq(b.b.h, WIDE.h)
++  eq(T.place_screen(t, "b", "nonsense"), false)
++  eq(T.place_screen(t, "zz", "sleft"), false)
++end)
++
++test("a drop intent aimed at the screen edge is carried out when the window returns", function()
++  local t = T.new()
++  make(t, "a", "b", "c")
++  local opts = { exists = function() return true end, now = 100 }
++  T.sync(t, live("a", "b"), WIDE, opts)            -- c floated
++  T.set_intent(t, { src = "c", dst = "screen", zone = "sright" })
++  T.sync(t, live("a", "b", "c"), WIDE, opts)
++  local b = T.layout(t, WIDE)
++  eq(math.floor(b.c.x + 0.5), 684); eq(b.c.h, WIDE.h)
++  -- and when the window had been detached in the meantime
++  local t2 = T.new()
++  make(t2, "a", "b", "c")
++  T.remove_window(t2, "c")
++  T.set_intent(t2, { src = "c", dst = "screen", zone = "sleft" })
++  T.add_window(t2, "c", "C", WIDE)
++  b = T.layout(t2, WIDE)
++  eq(b.c.x, 0); eq(b.c.h, WIDE.h)
 +end)
 +
  print(string.format("%d passed, %d failed", passed, failed))
