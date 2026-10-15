@@ -31,7 +31,7 @@ grep -q "caelestia-fractal-map" "$HOME/.config/hypr/fractal_keys.lua" || fail "m
 [ -L "$HOME/.config/hypr/fractal_gestures.lua" ] && [ -e "$HOME/.config/hypr/fractal_gestures.lua" ] || fail "gestures link"
 [ "$(grep -c fractal_gestures "$HOME/.config/hypr/hyprland.lua")" = 1 ] || fail "gestures require line added once"
 [ "$(grep -c 'layout = "lua:fractal"' "$HOME/.config/hypr/hyprland.lua")" = 1 ] || fail "default layout line added once"
-"$repo/bin/caelestia-fractal-setup" check | grep -q "default layout" || fail "check reports the default layout"
+chk=$("$repo/bin/caelestia-fractal-setup" check); case "$chk" in *"fractal is the default layout"*) ;; *) fail "check reports the default layout" ;; esac
 [ -L "$HOME/.config/hypr/fractal.lua" ] && [ -e "$HOME/.config/hypr/fractal.lua" ] || fail "engine link"
 
 cat > "$tmp/load.lua" <<LUA
