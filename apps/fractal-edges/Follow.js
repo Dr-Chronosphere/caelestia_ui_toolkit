@@ -79,3 +79,41 @@ function slideOffset(dir, style, incoming, t, width, height) {
     var d = incoming ? dir * span * (1 - t) : -dir * span * t;
     return vertical ? { x: 0, y: d } : { x: d, y: 0 };
 }
+
+// A Hyprland animation from `hyprctl animations -j`, resolved through its parents (an animation that
+// is not overridden uses its parent's values: windowsMove -> windows -> global):
+// { ms, curve: [x1, y1, x2, y2], style } or null if animations are off or unreadable. Speed is in
+// units of 100 ms. `curve` is the bezier's two control points (Hyprland's own, so a card eased with
+// it moves exactly as the window does).
+var PARENT = { windowsMove: "windows", windowsIn: "windows", windowsOut: "windows", windows: "global", workspaces: "global", workspacesIn: "workspaces", workspacesOut: "workspaces", fade: "global", layers: "global" };
+
+function parseAnimation(text, name) {
+    var o;
+    try {
+        o = JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+    var anims = Array.isArray(o) && Array.isArray(o[0]) ? o[0] : (Array.isArray(o) ? o : []);
+    var curves = Array.isArray(o) && Array.isArray(o[1]) ? o[1] : [];
+    var byName = {};
+    anims.forEach(function (a) { if (a && a.name) byName[a.name] = a; });
+    var a = byName[name];
+    var guard = 0;
+    while (a && a.overridden === false && PARENT[a.name] && byName[PARENT[a.name]] && guard++ < 5)
+        a = byName[PARENT[a.name]];
+    if (!a || a.enabled === false || !(a.speed > 0))
+        return null;
+    var pts = null;
+    curves.forEach(function (c) {
+        if (c && c.name === a.bezier) {
+            var x0 = c.X0 !== undefined ? c.X0 : c.x0, y0 = c.Y0 !== undefined ? c.Y0 : c.y0;
+            var x1 = c.X1 !== undefined ? c.X1 : c.x1, y1 = c.Y1 !== undefined ? c.Y1 : c.y1;
+            if ([x0, y0, x1, y1].every(function (v) { return typeof v === "number"; }))
+                pts = [x0, y0, x1, y1];
+        }
+    });
+    if (!pts)
+        pts = a.bezier === "linear" ? [0, 0, 1, 1] : [0, 0.75, 0.15, 1];   // Hyprland's built-in "default"
+    return { ms: Math.round(a.speed * 100), curve: pts, style: String(a.style || "") };
+}

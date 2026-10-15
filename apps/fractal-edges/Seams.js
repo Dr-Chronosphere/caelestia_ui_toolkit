@@ -217,7 +217,7 @@ function floatingRects(clientsText, monitorsText, monitorName, pad) {
         var shown = c.pinned || wsId === activeId || (specialId !== 0 && wsId === specialId);
         if (!shown)
             continue;
-        out.push({ x: c.at[0] - pad, y: c.at[1] - pad, w: c.size[0] + 2 * pad, h: c.size[1] + 2 * pad });
+        out.push({ x: c.at[0] - pad, y: c.at[1] - pad, w: c.size[0] + 2 * pad, h: c.size[1] + 2 * pad, address: c.address });
     }
     return out;
 }

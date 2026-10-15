@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(dir, "../Follow.js"), "utf8").replace(/^\.pragma.*$/m, "") + "\nthis.F={rectsByAddress,cardFromLive,sameRect,transitioning,parseWorkspaceAnim,slideOffset};", ctx);
+vm.runInContext(fs.readFileSync(path.join(dir, "../Follow.js"), "utf8").replace(/^\.pragma.*$/m, "") + "\nthis.F={rectsByAddress,cardFromLive,sameRect,transitioning,parseWorkspaceAnim,parseAnimation,slideOffset};", ctx);
 const F = ctx.F;
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -41,4 +41,21 @@ assert.deepEqual(plain(F.slideOffset(-1, "slide", true, 0, 1000, 600)), { x: -10
 assert.deepEqual(plain(F.slideOffset(1, "slide", true, 1, 1000, 600)), { x: 0, y: 0 }, "arrived");
 assert.deepEqual(plain(F.slideOffset(1, "slidevert", true, 0.5, 1000, 600)), { x: 0, y: 300 });
 assert.deepEqual(plain(F.slideOffset(1, "fade", true, 0.3, 1000, 600)), { x: 0, y: 0 }, "other styles do not move");
+// resolved animations with their bezier curves
+const full = JSON.stringify([[
+  { name: "global", overridden: true, bezier: "default", enabled: true, speed: 8, style: "" },
+  { name: "windows", overridden: true, bezier: "snap", enabled: true, speed: 5, style: "popin 80%" },
+  { name: "windowsMove", overridden: false, bezier: "default", enabled: true, speed: 8, style: "" },
+  { name: "workspaces", overridden: true, bezier: "snap", enabled: true, speed: 4, style: "slide" },
+  { name: "windowsIn", overridden: true, bezier: "nope", enabled: true, speed: 3, style: "" }
+], [{ name: "snap", X0: 0.2, Y0: 0.9, X1: 0.3, Y1: 1 }]]);
+let m = plain(F.parseAnimation(full, "windowsMove"));
+assert.deepEqual([m.ms, m.curve], [500, [0.2, 0.9, 0.3, 1]], "windowsMove is not overridden: it uses windows (speed 5, the snap curve)");
+m = plain(F.parseAnimation(full, "workspaces"));
+assert.deepEqual([m.ms, m.curve, m.style], [400, [0.2, 0.9, 0.3, 1], "slide"]);
+m = plain(F.parseAnimation(full, "windowsIn"));
+assert.deepEqual(m.curve, [0, 0.75, 0.15, 1], "an unknown bezier name falls back to Hyprland's default");
+assert.equal(F.parseAnimation(full, "nothing"), null);
+assert.equal(F.parseAnimation(JSON.stringify([[{ name: "windows", overridden: true, enabled: false, speed: 5 }, { name: "windowsMove", overridden: false }], []]), "windowsMove"), null, "the parent is disabled: so is the child");
+assert.equal(F.parseAnimation("nope", "windows"), null);
 console.log("follow tests passed");

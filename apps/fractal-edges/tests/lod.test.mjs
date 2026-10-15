@@ -137,5 +137,12 @@ assert.equal(nx({ mode: "out" }, 1.0).alpha, 1, "shrinking back mid fade-out ret
   assert.ok(Math.abs(k[0].alpha - 0.5) < 1e-6, "fading out above the threshold");
   assert.equal(plain(L.cards(wide, [], { ...o, prev: had, idle: true })).length, 0, "idle above the threshold: gone");
 }
+// a floating window does not block its own card (the dragged window floats over its own tile)
+{
+  const own = plain(L.cards(status, [{ x: 650, y: 400, w: 400, h: 500, address: "c" }], { minW: 350, minH: 100 }));
+  assert.ok(own.some(k => k.address === "c"), "c's card stays while c itself floats over it");
+  const other = plain(L.cards(status, [{ x: 650, y: 400, w: 400, h: 500, address: "zzz" }], { minW: 350, minH: 100 }));
+  assert.ok(!other.some(k => k.address === "c"), "another window floating over it still hides it");
+}
 console.log("hysteresis ok");
 assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100, idle: true }))[0].settle, true); assert.equal(plain(L.cards(status, [], { minW: 350, minH: 100 }))[0].settle, false);

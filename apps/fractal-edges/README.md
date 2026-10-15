@@ -276,12 +276,15 @@ A window counts as tabbable when its title starts with `Files #`.
 
 ## Cards follow their windows
 
-- **Zoom / reflow:** the card used to jump to the window's final position while the window was still
-  animating there. While a transition is under way the card now tracks the window's *current* rect
-  (`hyprctl clients -j` reports the animated position; sampled ~30 times a second and glided between
-  samples), and the polling stops once everything has settled. `FRACTAL_EDGE_FOLLOW=off` disables it.
+- **Zoom / reflow:** when a card's tile changes, the card travels there with the *compositor's own
+  animation*: the duration and bezier of your `windowsMove` animation (resolved through
+  `windows` / `global` as Hyprland does, read from `hyprctl animations -j`), started the moment the
+  layout changes. It moves in step with its window and needs no polling, so there is no lag. If
+  Hyprland animations are off, it moves instantly. `FRACTAL_EDGE_FOLLOW=off` makes it jump instead.
+- **A window being dragged** is a floating window under the pointer, so its card follows by sampling
+  its position (about every 16 ms) with a short glide. A window never hides its own card.
 - **Workspace switch:** the old workspace's cards slide out and the new one's slide in, using your
-  workspace animation (style and speed read from `hyprctl animations -j`: `slide` horizontal,
+  workspace animation (style, speed and bezier read from `hyprctl animations -j`: `slide` horizontal,
   `slidevert` vertical, other styles don't move). Cards made during a slide are simply there instead
   of fading in. `FRACTAL_EDGE_WS_SLIDE=off` disables it.
 

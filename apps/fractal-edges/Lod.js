@@ -129,6 +129,9 @@ function cards(status, blockers, opts) {
             return;
         var r = cardRect(w.box, status.area, inset, outset, opts.bounds);
         for (var i = 0; i < (blockers || []).length; i++) {
+            // a window never blocks its own card (a dragged window is floating, over its own tile)
+            if (blockers[i].address && blockers[i].address === w.address)
+                continue;
             if (intersects(r, blockers[i]))
                 return;
         }

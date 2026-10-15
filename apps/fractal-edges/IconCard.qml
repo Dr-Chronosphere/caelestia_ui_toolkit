@@ -26,6 +26,51 @@ Item {
     // Appear fully shown instead of fading in from nothing (a card that is just part of a workspace
     // that slides into view).
     property bool startShown: false
+    // Move/resize eased like the compositor eases windows: Hyprland's own duration and bezier (read from
+    // `hyprctl animations -j`), so a card whose tile changes travels exactly as its window does. The
+    // host turns it off while animations are suspended or a slide drives the position, and sets a
+    // short linear glide while it follows a carried window.
+    property bool moveEnabled: false
+    property int moveMs: 0
+    property var moveCurve: [0, 0, 1, 1]
+    property bool moveLinear: false
+
+    Behavior on x {
+        enabled: root.moveEnabled
+
+        NumberAnimation {
+            duration: root.moveMs
+            easing.type: root.moveLinear ? Easing.Linear : Easing.BezierSpline
+            easing.bezierCurve: root.moveCurve.concat([1, 1])
+        }
+    }
+    Behavior on y {
+        enabled: root.moveEnabled
+
+        NumberAnimation {
+            duration: root.moveMs
+            easing.type: root.moveLinear ? Easing.Linear : Easing.BezierSpline
+            easing.bezierCurve: root.moveCurve.concat([1, 1])
+        }
+    }
+    Behavior on width {
+        enabled: root.moveEnabled
+
+        NumberAnimation {
+            duration: root.moveMs
+            easing.type: root.moveLinear ? Easing.Linear : Easing.BezierSpline
+            easing.bezierCurve: root.moveCurve.concat([1, 1])
+        }
+    }
+    Behavior on height {
+        enabled: root.moveEnabled
+
+        NumberAnimation {
+            duration: root.moveMs
+            easing.type: root.moveLinear ? Easing.Linear : Easing.BezierSpline
+            easing.bezierCurve: root.moveCurve.concat([1, 1])
+        }
+    }
     property bool _applied: false
     // Length of the fade once it eases (after the layout settles or when a card leaves).
     property int fadeMs: 450

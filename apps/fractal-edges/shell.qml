@@ -341,7 +341,8 @@ ShellRoot {
     // like the workspaces do. FRACTAL_EDGE_FOLLOW=off / FRACTAL_EDGE_WS_SLIDE=off disable each.
     readonly property bool followCards: Quickshell.env("FRACTAL_EDGE_FOLLOW") !== "off"
     readonly property bool slideCards: Quickshell.env("FRACTAL_EDGE_WS_SLIDE") !== "off"
-    property var wsAnim: null            // { ms, style } from `hyprctl animations -j`, or null
+    property var wsAnim: null            // the workspaces animation { ms, curve, style }, or null if off
+    property var moveAnim: null          // the windowsMove animation (what windows and so cards move with)
 
     Process {
         id: animProc
@@ -352,7 +353,11 @@ ShellRoot {
 
             waitForEnd: true
         }
-        onExited: root.wsAnim = Follow.parseWorkspaceAnim(String(animOut.text || ""))
+        onExited: {
+            const t = String(animOut.text || "");
+            root.wsAnim = Follow.parseAnimation(t, "workspaces");
+            root.moveAnim = Follow.parseAnimation(t, "windowsMove");
+        }
     }
 
     // --- dragging a tiled window: show where it will land, and tell the layout ------------------
@@ -719,7 +724,8 @@ ShellRoot {
                 from: 0
                 to: 1
                 duration: root.wsAnim ? root.wsAnim.ms : 400
-                easing.type: Easing.OutCubic
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: root.wsAnim ? root.wsAnim.curve.concat([1, 1]) : [0, 0, 1, 1, 1, 1]
                 onFinished: scope.slideSnap = null
             }
 
@@ -967,7 +973,6 @@ ShellRoot {
                 measureTimer.fetched = false;
                 measureTimer.interval = 600;
                 measureTimer.restart();
-                startFollow();
                 rebuild();
             }
             onWsIdChanged: {
@@ -1277,36 +1282,14 @@ ShellRoot {
                         height: Math.max(1, Math.round(rect.h))
                         // A card made during a slide is simply there (no fade-in from nothing).
                         startShown: scope.sliding
-                        // Glide between the ~30 Hz samples of the window's position.
-                        readonly property int glide: root.ddDragging !== "" ? 18 : 45
-                        Behavior on x {
-                            enabled: scope.followOn
-
-                            NumberAnimation {
-                                duration: cardItem.glide
-                            }
-                        }
-                        Behavior on y {
-                            enabled: scope.followOn
-
-                            NumberAnimation {
-                                duration: cardItem.glide
-                            }
-                        }
-                        Behavior on width {
-                            enabled: scope.followOn
-
-                            NumberAnimation {
-                                duration: cardItem.glide
-                            }
-                        }
-                        Behavior on height {
-                            enabled: scope.followOn
-
-                            NumberAnimation {
-                                duration: cardItem.glide
-                            }
-                        }
+                        // The card travels with the compositor's own animation (duration and bezier from
+                        // `hyprctl animations -j`), started when the layout changes, so it moves in step
+                        // with its window with no polling lag. A carried window (a drag) is followed by
+                        // sampling its position instead, with a short linear glide between samples.
+                        moveEnabled: !scope.sliding && !scope.dragging && !root.animSuspended && (scope.followOn || root.moveAnim !== null)
+                        moveMs: scope.followOn ? (root.ddDragging !== "" ? 18 : 45) : (root.moveAnim ? root.moveAnim.ms : 0)
+                        moveCurve: root.moveAnim ? root.moveAnim.curve : [0, 0, 1, 1]
+                        moveLinear: scope.followOn
                         shown: !geo.leaving
                         // Opacity eases only for a settled card (after mouse-up, or no drag at all) or one
                         // leaving; while you drag it tracks the tile directly. The flag travels in the
