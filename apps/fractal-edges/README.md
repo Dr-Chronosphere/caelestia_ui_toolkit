@@ -363,3 +363,19 @@ swipe and with every workspace/zoom animation exactly like the app windows (no e
   Caelestia's default `bar.workspaces.ignoredTags`. If you changed that list in
   `~/.config/caelestia/shell.json`, add `"hide_in_bar"` back (or any tag, then change the tag in
   `Seams.cardWindowRuleCommand()` to match).
+
+### Window mode: diagnosing it
+
+`bin/caelestia-fractal-edges doctor` lists the card windows (floating?, tags, position, size,
+workspace) and the last window-rule results. The rules are registered as four small rules (core:
+float/no_focus..., look: no shadow/blur/dim/decorate, shape: border_size/rounding, tag: `hide_in_bar`),
+each in its own `pcall`, and each result is written to
+`~/.local/state/fractal-edges/rules.log` (`ok` or `ERROR <message>`). If a card window looks like an
+ordinary window (visible frame, in the middle of the screen, counted by the bar), look there first:
+a key your Hyprland rejects shows up as `ERROR`, and the others still apply. A healthy card window
+shows `floating=true` and `tags=["hide_in_bar…"]` in the doctor output.
+
+Card moves are now sent as direct dispatches over the Hyprland socket the moment the layout
+changes (no helper process in between), so the card starts moving with its window; the first
+placement of a new card is instant and the card stays invisible until the compositor reports its
+window at the right place.

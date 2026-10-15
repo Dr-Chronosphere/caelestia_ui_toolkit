@@ -50,6 +50,14 @@ doctor() {
         hyprctl monitors -j
     fi
     echo
+    echo
+    echo "== icon-card windows (FRACTAL_CARD_MODE=window) =="
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl clients -j | jq -r '[.[] | select(.title | startswith("fractal-edges-card"))] | if length == 0 then "(none)" else .[] | "\(.title)  floating=\(.floating) tags=\(.tags) at=\(.at) size=\(.size) ws=\(.workspace.id)" end'
+    fi
+    rl="${XDG_STATE_HOME:-$HOME/.local/state}/fractal-edges/rules.log"
+    if [ -f "$rl" ]; then echo "window rule results ($rl, last 8):"; tail -n 8 "$rl" | sed 's/^/    /'; else echo "no rules.log yet: the card window rules have not run (start the overlay)"; fi
+    echo
     echo "Handles for a workspace need: tiledLayout = lua:fractal AND a fresh ws-<id>.json."
 }
 

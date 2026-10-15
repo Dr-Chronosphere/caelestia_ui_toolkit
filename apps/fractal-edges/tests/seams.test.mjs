@@ -298,7 +298,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clJ, stJ))), { inner:
   assert.equal(S.hasFloating(JSON.stringify([{ title: "fractal-edges-card k7", floating: true, mapped: true }])), false, "cards alone do not count as floating windows");
   assert.deepEqual(plain(S.cardWindowAddresses(cl)), { k7: "0x1" });
   assert.deepEqual(plain(S.cardWindowAddresses("nope")), {});
-  assert.match(S.cardWindowRuleCommand(), /^pcall\(hl\.window_rule, \{ name = "fractal-edges-card-windows", match = \{ title = "\^fractal-edges-card " \}, float = true, tag = "hide_in_bar", no_focus = true/);
+  const rules = S.cardWindowRuleCommand();
+  for (const key of ["float = true", "no_focus = true", "no_initial_focus = true", "no_follow_mouse = true", "no_shadow = true", "no_blur = true", "no_dim = true", "decorate = false", "border_size = 0", "rounding = 0", 'tag = "hide_in_bar"'])
+    assert.ok(rules.includes(key), "card window rule has " + key);
+  assert.equal((rules.match(/hl\.window_rule/g) || []).length, 1, "one pcall'd registration helper");
+  assert.equal((rules.match(/R\("/g) || []).length, 4, "four separate rules: one bad key cannot drop the others");
+  assert.ok(rules.includes("rules.log"), "and each result is logged");
   const cmd = S.placeCardsCommand([{ address: "0xabc", x: 10.4, y: 20, w: 300, h: 150.6 }, { address: "0x1; boom", x: 0, y: 0, w: 1, h: 1 }, { address: "0xdef", x: NaN, y: 0, w: 1, h: 1 }]);
   assert.match(cmd, /p\("0xabc", 10, 20, 300, 151, false\)/);
   assert.match(S.placeCardsCommand([{ address: "0xabc", x: 1, y: 2, w: 3, h: 4, instant: true }]), /p\("0xabc", 1, 2, 3, 4, true\)/);

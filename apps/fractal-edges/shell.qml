@@ -710,7 +710,6 @@ ShellRoot {
             property var cardAddr: ({})        // card key -> the Hyprland address of its window
             property var sentRects: ({})
             property var placedCards: ({})     // card key -> true once its window has been put in place
-            property string placeLua: ""
 
             function cardInfo(key: string): var {
                 if (cardMap[key] !== undefined)
@@ -755,12 +754,65 @@ ShellRoot {
                 return Math.abs(a.x - t.x) <= 4 && Math.abs(a.y - t.y) <= 4 && Math.abs(a.w - t.w) <= 4 && Math.abs(a.h - t.h) <= 4;
             }
 
+            // Put a card window at a rectangle with direct dispatches over the Hyprland socket (no process
+            // to start, so the card's move begins within a few ms of the layout change and the compositor
+            // animates it with the same curve as the app window). `instant` switches the window's
+            // animations off for the move (its first placement), and back on 150 ms later.
+            function sendPlacement(address: string, t, instant: bool): void {
+                if (!/^0x[0-9a-f]+$/i.test(address))
+                    return;
+                const win = "window = \"address:" + address + "\"";
+                if (instant) {
+                    Hyprland.dispatch("hl.dsp.window.set_prop({ " + win + ", prop = \"no_anim\", value = \"1\" })");
+                    resetAnim.addresses = resetAnim.addresses.concat([address]);
+                    resetAnim.restart();
+                }
+                Hyprland.dispatch("hl.dsp.window.resize({ " + win + ", x = " + t.w + ", y = " + t.h + " })");
+                Hyprland.dispatch("hl.dsp.window.move({ " + win + ", x = " + t.x + ", y = " + t.y + ", relative = false })");
+            }
+
+            Timer {
+                id: resetAnim
+
+                property var addresses: []
+
+                interval: 150
+                onTriggered: {
+                    for (const a of addresses)
+                        Hyprland.dispatch("hl.dsp.window.set_prop({ window = \"address:" + a + "\", prop = \"no_anim\", value = \"0\" })");
+                    addresses = [];
+                }
+            }
+
+            // Called the moment the cards change: move the windows of cards that are already shown
+            // (their addresses are known) right away; new cards are placed by the verifying pass below.
+            function fastPlace(): void {
+                const now = Date.now();
+                for (const k of cardKeys) {
+                    const g = cardMap[k];
+                    const a = cardAddr[k];
+                    if (!g || !a || !placedCards[k])
+                        continue;
+                    const t = {
+                        "x": Math.round(g.x),
+                        "y": Math.round(g.y),
+                        "w": Math.max(1, Math.round(g.w)),
+                        "h": Math.max(1, Math.round(g.h))
+                    };
+                    const key = t.x + "," + t.y + "," + t.w + "," + t.h;
+                    if (sentRects[k] !== key) {
+                        sentRects[k] = key;
+                        sentAt[k] = now;
+                        sendPlacement(a, t, false);
+                    }
+                }
+            }
+
             function placeCards(clientsText: string): void {
                 cardAddr = Seams.cardWindowAddresses(clientsText);
                 const actual = Follow.rectsByAddress(clientsText);
                 const now = Date.now();
                 const settleMs = (root.moveAnim ? root.moveAnim.ms : 400) + 350;
-                const list = [];
                 const placed = Object.assign({}, placedCards);
                 // forget cards whose windows are gone (a recreated window starts unplaced again)
                 const live = {};
@@ -803,19 +855,19 @@ ShellRoot {
                             if (!wasSent || sentRects[k] !== key || now - (sentAt[k] || 0) > 400) {
                                 sentRects[k] = key;
                                 sentAt[k] = now;
-                                list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": true });
+                                sendPlacement(a, t, true);
                             }
                         }
                     } else if (sentRects[k] !== key) {
                         // its tile changed (reflow, zoom): move it with the compositor's animation
                         sentRects[k] = key;
                         sentAt[k] = now;
-                        list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": false });
+                        sendPlacement(a, t, false);
                         waiting = true;
                     } else if (!there && now - (sentAt[k] || 0) > settleMs) {
                         // it should have arrived by now and has not (a move that did not take): say it again
                         sentAt[k] = now;
-                        list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": true });
+                        sendPlacement(a, t, true);
                         waiting = true;
                     } else if (!there) {
                         waiting = true;         // still travelling
@@ -823,9 +875,6 @@ ShellRoot {
                 }
                 if (JSON.stringify(placed) !== JSON.stringify(placedCards))
                     placedCards = placed;
-                placeLua = Seams.placeCardsCommand(list);
-                if (placeLua !== "")
-                    placeProc.running = true;
                 // keep looking until every card is where it belongs (bounded, in case a window never shows)
                 if (waiting && syncTries < 40) {
                     syncTries++;
@@ -861,15 +910,6 @@ ShellRoot {
                     waitForEnd: true
                 }
                 onExited: scope.placeCards(String(locateOut.text || ""))
-            }
-
-            Process {
-                id: placeProc
-
-                command: ["hyprctl", "eval", scope.placeLua]
-                stdout: StdioCollector {
-                    waitForEnd: true
-                }
             }
 
             // --- following windows through transitions ---
@@ -1012,6 +1052,7 @@ ShellRoot {
                         delete pk[wsId];
                         parkedCards = pk;
                     }
+                    fastPlace();
                     scheduleCardSync();
                 }
                 // Not restarted while running, or constant updates would starve the purge.

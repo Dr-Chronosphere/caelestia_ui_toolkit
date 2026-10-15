@@ -539,11 +539,27 @@ function cardWindowAddresses(clientsText) {
     return out;
 }
 
-// Window rule for the card windows (through `hyprctl eval`, in a pcall): floating, never focused,
-// no border/shadow/blur/dimming, so the window is just the card's own pixels. The `hide_in_bar` tag
-// is Caelestia's own default entry in bar.workspaces.ignoredTags, so its bar does not count them.
+// Window rules for the card windows, applied through `hyprctl eval`: floating, never focused, no
+// border/shadow/blur/dimming (the window is just the card's own pixels), and tagged `hide_in_bar`
+// (Caelestia's default bar.workspaces.ignoredTags entry, so its bar does not count them).
+// Registered as several small rules, each in its own pcall that writes its result to
+// $XDG_STATE_HOME/fractal-edges/rules.log, so one key a Hyprland does not know cannot silently
+// drop the whole set, and the log says which one it was.
+var CARD_RULES = [
+    ["core", 'float = true, no_focus = true, no_initial_focus = true, no_follow_mouse = true'],
+    ["look", 'no_shadow = true, no_blur = true, no_dim = true, decorate = false'],
+    ["shape", 'border_size = 0, rounding = 0'],
+    ["tag", 'tag = "hide_in_bar"']
+];
+
 function cardWindowRuleCommand() {
-    return 'pcall(hl.window_rule, { name = "fractal-edges-card-windows", match = { title = "^fractal-edges-card " }, float = true, tag = "hide_in_bar", no_focus = true, no_initial_focus = true, no_follow_mouse = true, no_shadow = true, no_blur = true, no_dim = true, decorate = false, border_size = 0, rounding = 0 })';
+    var head = 'local function R(n, s) local ok, e = pcall(hl.window_rule, s); '
+        + 'local d = (os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state")) .. "/fractal-edges"; '
+        + 'os.execute("mkdir -p " .. d); local f = io.open(d .. "/rules.log", "a"); '
+        + 'if f then f:write(os.date("%T "), n, ": ", ok and "ok" or ("ERROR " .. tostring(e)), "\n"); f:close() end end; ';
+    return head + CARD_RULES.map(function (r) {
+        return 'R("' + r[0] + '", { name = "fractal-edges-card-' + r[0] + '", match = { title = "^fractal-edges-card " }, ' + r[1] + ' })';
+    }).join("; ");
 }
 
 // Lua that places card windows: [{ address, x, y, w, h, instant? }] -> resize then move each
