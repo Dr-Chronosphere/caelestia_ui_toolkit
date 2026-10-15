@@ -1,5 +1,5 @@
 diff --git a/lua/fractal.lua b/lua/fractal.lua
-index f4f204f..c214ae5 100644
+index f4f204f..7472fa4 100644
 --- a/lua/fractal.lua
 +++ b/lua/fractal.lua
 @@ -64,12 +64,43 @@ local function load_state(ws)
@@ -113,7 +113,7 @@ index f4f204f..c214ae5 100644
    elseif cmd == "desktop" then
      local d = T.desktop_node(tree)
      if arg == "on" and not d then
-@@ -377,12 +442,31 @@ end
+@@ -377,12 +442,39 @@ end
  
  -- --------------------------------------------------------------- provider --
  
@@ -121,9 +121,17 @@ index f4f204f..c214ae5 100644
 +-- other tiles do not reflow. `exists` asks the compositor; if the window object does not say it is
 +-- floating, treat it as gone (closed windows must never leave a gap). A pass is scheduled to let a
 +-- phantom go if nothing holds it.
++local warned_floating = false
 +local function window_floating(address)
 +  local ok, w = pcall(hl.get_window, "address:" .. address)
-+  return ok and type(w) == "table" and w.floating == true
++  if not (ok and type(w) == "table") then return false end
++  if w.floating == nil and not warned_floating then
++    -- Without this field a floated window cannot be told from a closed one, so slots are not held
++    -- (tiles reflow while dragging, as before). Written once to fractal.log.
++    warned_floating = true
++    log("window objects have no `floating` field: dragged windows will not keep their slot")
++  end
++  return w.floating == true
 +end
 +
 +local function sync_opts(tree)
@@ -146,7 +154,7 @@ index f4f204f..c214ae5 100644
      refresh_focus(tree)
      apply(tree, ctx)
      save(ws, tree)
-@@ -402,12 +486,12 @@ function M.layout_msg(ctx, msg)
+@@ -402,12 +494,12 @@ function M.layout_msg(ctx, msg)
        tree = T.new({ desktop = M.desktop })
        M.trees[ws] = tree
      end
