@@ -11,7 +11,7 @@ Item {
     property int workspace: 0
     property real stripWidth: 24
 
-    readonly property bool left: side === "prev"
+    readonly property bool atLeft: side === "prev"
     opacity: side !== "" ? 1 : 0
     visible: opacity > 0.001
 
@@ -23,17 +23,17 @@ Item {
 
     // the strip itself
     Rectangle {
-        x: root.left ? 0 : root.width - width
+        x: root.atLeft ? 0 : root.width - width
         width: Math.max(root.stripWidth, 18) + root.progress * 60
         height: root.height
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop {
-                position: root.left ? 0 : 1
+                position: root.atLeft ? 0 : 1
                 color: Qt.alpha(Theme.palette.m3primary, 0.35 + 0.35 * root.progress)
             }
             GradientStop {
-                position: root.left ? 1 : 0
+                position: root.atLeft ? 1 : 0
                 color: "transparent"
             }
         }
@@ -41,7 +41,7 @@ Item {
 
     Rectangle {
         anchors.verticalCenter: parent.verticalCenter
-        x: root.left ? Theme.padding.large : root.width - width - Theme.padding.large
+        x: root.atLeft ? Theme.padding.large : root.width - width - Theme.padding.large
         width: label.implicitWidth + Theme.padding.large * 2
         height: 40
         radius: Theme.rounding.full
@@ -60,7 +60,7 @@ Item {
             id: label
 
             anchors.centerIn: parent
-            text: (root.left ? "← " : "") + "Workspace " + root.workspace + (root.left ? "" : " →")
+            text: (root.atLeft ? "← " : "") + "Workspace " + root.workspace + (root.atLeft ? "" : " →")
             color: Theme.palette.m3onPrimaryContainer
         }
     }
