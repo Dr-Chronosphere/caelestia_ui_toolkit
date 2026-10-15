@@ -237,9 +237,19 @@ ShellRoot {
         function onRawEvent(event): void {
             if (event.name === "configreloaded")
                 root.applyLayerRule();
+            if (event.name === "workspace" || event.name === "workspacev2" || event.name === "createworkspacev2" || event.name === "focusedmonv2" || event.name === "configreloaded")
+                wsRefresh.restart();
             if (root.floatEvents.indexOf(event.name) >= 0)
                 floatDebounce.restart();
         }
+    }
+
+    // Workspace records (their layout flag) go stale after a switch; refresh them shortly after.
+    Timer {
+        id: wsRefresh
+
+        interval: 120
+        onTriggered: Hyprland.refreshWorkspaces()
     }
 
     Timer {
@@ -583,14 +593,37 @@ ShellRoot {
                 measureTimer.restart();
                 rebuild();
             }
-            onFractalActiveChanged: rebuild()
             onWsIdChanged: {
                 status = null;
+                root.dbg(modelData.name + ": workspace " + wsId + " layout=" + (ws && ws.lastIpcObject ? ws.lastIpcObject.tiledLayout : "?") + " active=" + fractalActive);
                 updateBlockers();
                 rebuild();
+                // The workspace's layout flag can lag the switch; ask Hyprland again.
+                Hyprland.refreshWorkspaces();
+                statusRetry.restart();
+            }
+            onFractalActiveChanged: {
+                root.dbg(modelData.name + ": fractal layout active=" + fractalActive + " (workspace " + wsId + ")");
+                rebuild();
+                if (fractalActive)
+                    statusFile.reload();
+            }
+
+            // A workspace's status file may not exist yet when you switch to it (fractal-wm writes
+            // it when it first lays that workspace out), and a missing file cannot be watched, so
+            // the FileView would never see it appear. Retry until it loads.
+            Timer {
+                id: statusRetry
+
+                interval: 400
+                repeat: true
+                running: scope.wsId >= 0 && scope.status === null && scope.fractalActive
+                onTriggered: statusFile.reload()
             }
 
             FileView {
+                id: statusFile
+
                 path: scope.wsId >= 0 ? root.runtimeDir + "/ws-" + scope.wsId + ".json" : ""
                 watchChanges: true
                 printErrors: false
