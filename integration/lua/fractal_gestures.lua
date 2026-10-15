@@ -1,12 +1,18 @@
--- fractal_gestures.lua: zoom the fractal layout with pinch gestures. Part of caelestia_ui_toolkit.
+-- fractal_gestures.lua: touchpad gestures for the fractal layout. Part of caelestia_ui_toolkit.
 --
 --   require("hypr.fractal_gestures").setup()                     -- defaults below
---   require("hypr.fractal_gestures").setup({ fingers = 3, mod_fingers = 2, mods = "SUPER" })
+--   require("hypr.fractal_gestures").setup({ fingers = 3, special_fingers = 4, mod_fingers = 2,
+--                                           mods = "SUPER", special = "special", pinch = false })
 --
 -- Touchpad (Hyprland's native gestures):
---   pinch out with `fingers` fingers            -> zoom-in  (the focused window fills the view)
---   pinch in  with `fingers` fingers            -> zoom-out
---   the same with `mod_fingers` fingers while `mods` are held (set mod_fingers = false to skip)
+--   `fingers` (3) swipe UP            -> zoom-in  (the focused window fills the view)
+--   `fingers` (3) swipe DOWN          -> zoom-out
+--   `special_fingers` (4) swipe up or down -> toggle the special workspace (scratchpad) `special`
+--   the same zoom swipes with `mod_fingers` (2) fingers while `mods` are held (mod_fingers = false
+--     to skip)
+--   pinch = true also binds pinch out/in with `fingers` fingers to zoom-in/out (off by default)
+--   Horizontal swipes are left alone, so Hyprland's own workspace swipe keeps working. No
+--   five-finger gesture is bound.
 --
 -- Touchscreen: Hyprland has no native touchscreen pinch. fractal_keys.lua binds a 3-finger pinch
 -- through the hyprgrass plugin when it is loaded; this file only reports whether it is.
@@ -47,24 +53,46 @@ local function try(label, spec)
   return ok
 end
 
+-- Toggle the special workspace `name`: the dispatcher if this Hyprland has it, else the built-in
+-- "special" gesture action.
+local function special_action(name)
+  if type(hl) == "table" and type(hl.dsp) == "table" and type(hl.dsp.workspace) == "table"
+      and type(hl.dsp.workspace.toggle_special) == "function" then
+    return function() hl.dispatch(hl.dsp.workspace.toggle_special(name)) end, "hl.dsp.workspace.toggle_special"
+  end
+  return "special", "built-in special action"
+end
+
 function M.setup(opts)
   opts = opts or {}
   log_lines = {}
   local fingers = opts.fingers or 3
+  local special_fingers = opts.special_fingers
+  if special_fingers == nil then special_fingers = 4 end
   local mod_fingers = opts.mod_fingers
   if mod_fingers == nil then mod_fingers = 2 end
   local mods = opts.mods or "SUPER"
+  local special = opts.special or "special"
 
   if type(hl) ~= "table" or type(hl.gesture) ~= "function" then
-    note("hl.gesture is not available in this Hyprland: touchpad pinch zoom not installed")
+    note("hl.gesture is not available in this Hyprland: touchpad gestures not installed")
   else
-    try(fingers .. "-finger pinch out -> zoom-in", { fingers = fingers, direction = "pinchout", action = layout("zoom-in") })
-    try(fingers .. "-finger pinch in -> zoom-out", { fingers = fingers, direction = "pinchin", action = layout("zoom-out") })
+    try(fingers .. "-finger swipe up -> zoom-in", { fingers = fingers, direction = "up", action = layout("zoom-in") })
+    try(fingers .. "-finger swipe down -> zoom-out", { fingers = fingers, direction = "down", action = layout("zoom-out") })
+    if special_fingers then
+      local act, how = special_action(special)
+      try(special_fingers .. "-finger vertical swipe -> toggle special workspace '" .. special .. "' (" .. how .. ")",
+        { fingers = special_fingers, direction = "vertical", action = act })
+    end
     if mod_fingers then
-      try(mod_fingers .. "-finger pinch out + " .. mods .. " -> zoom-in",
-        { fingers = mod_fingers, direction = "pinchout", mods = mods, action = layout("zoom-in") })
-      try(mod_fingers .. "-finger pinch in + " .. mods .. " -> zoom-out",
-        { fingers = mod_fingers, direction = "pinchin", mods = mods, action = layout("zoom-out") })
+      try(mod_fingers .. "-finger swipe up + " .. mods .. " -> zoom-in",
+        { fingers = mod_fingers, direction = "up", mods = mods, action = layout("zoom-in") })
+      try(mod_fingers .. "-finger swipe down + " .. mods .. " -> zoom-out",
+        { fingers = mod_fingers, direction = "down", mods = mods, action = layout("zoom-out") })
+    end
+    if opts.pinch then
+      try(fingers .. "-finger pinch out -> zoom-in", { fingers = fingers, direction = "pinchout", action = layout("zoom-in") })
+      try(fingers .. "-finger pinch in -> zoom-out", { fingers = fingers, direction = "pinchin", action = layout("zoom-out") })
     end
   end
 

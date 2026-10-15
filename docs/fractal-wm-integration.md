@@ -59,13 +59,17 @@ Hyprland restart or a layout switch.
 - **Icons for small tiles (Trellis-style level of detail)**: `apps/fractal-edges/Lod.js`,
   `IconCard.qml` (see that README). Tapping a card zooms into the window.
 - **Zoom gestures** (`integration/lua/fractal_gestures.lua`, installed by `caelestia-fractal-setup`):
-  - Touchpad, native: a 3-finger pinch out/in zooms in/out, and a 2-finger pinch while SUPER is held does
-    the same (`setup({ fingers = 3, mod_fingers = 2, mods = "SUPER" })`). They send the same `zoom-in` /
-    `zoom-out` layout commands as the keys. On Hyprland 0.56 a gesture's `action` is a Lua *function*
-    (not a dispatcher object), so the file wraps the call; every `hl.gesture` call is in `pcall`, so a
-    value your Hyprland rejects (I could not confirm that `"pinchout"` is valid) cannot break the config.
-    What was accepted or rejected is written to `~/.local/state/fractal-wm/gestures.log`, and
-    `caelestia-fractal-setup check` prints it.
+  - Touchpad, native: 3-finger swipe **up** zooms in, **down** zooms out (a 2-finger swipe while SUPER is held
+    does the same), and a 4-finger vertical swipe (up or down) toggles the special workspace. Horizontal
+    swipes are untouched, so Hyprland's workspace swipe keeps working; nothing is bound to five fingers.
+    `setup({ fingers = 3, special_fingers = 4, mod_fingers = 2, mods = "SUPER", special = "special", pinch = false })`;
+    `pinch = true` adds the old pinch out/in zoom. Zoom sends the same `zoom-in` / `zoom-out` layout
+    commands as the keys. On Hyprland 0.56 a gesture's `action` is a Lua *function* (not a dispatcher
+    object), so the file wraps the call; the special-workspace gesture uses `hl.dsp.workspace.toggle_special`
+    when it exists and otherwise the built-in `"special"` action. Every `hl.gesture` call is in `pcall`, so a
+    value your Hyprland rejects (I could not confirm that `"up"`, `"vertical"` or `"special"` are accepted
+    exactly like this) cannot break the config. What was accepted or rejected is written to
+    `~/.local/state/fractal-wm/gestures.log`, and `caelestia-fractal-setup check` prints it.
   - Touchscreen: Hyprland has no native touchscreen pinch (it has touch *workspace swipes*,
     `gestures.workspace_swipe_touch`). It needs the hyprgrass plugin (alpha-quality, tracks Hyprland
     releases). Upstream's `fractal_keys.lua` already binds a 3-finger hyprgrass pinch when the plugin is
