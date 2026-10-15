@@ -26,7 +26,7 @@ assert.equal(near(0.4, 0.5).zone, "left", "just left of the middle: left half");
 assert.equal(near(0.6, 0.5).zone, "right");
 assert.equal(near(0.5, 0.42).zone, "up");
 assert.equal(near(0.5, 0.6).zone, "down");
-assert.equal(near(0.45, 0.55).zone, "left", "the larger offset from the centre decides");
+assert.equal(near(0.42, 0.52).zone, "left", "the larger offset from the centre decides");
 assert.equal(near(0.52, 0.65).zone, "down");
 assert.ok(["left", "right", "up", "down"].includes(near(0.5, 0.5).zone), "the exact centre still picks a side");
 t = plain(D.targetAt({ x: a.box.x + 3, y: mid.y }, list, ""));
