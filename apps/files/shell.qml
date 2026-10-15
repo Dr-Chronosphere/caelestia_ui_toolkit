@@ -67,11 +67,11 @@ ShellRoot {
             Quickshell.execDetached(["hyprctl", "eval", tileRule]);
     }
 
-    // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (after a
-    // beat, so the window is mapped), in case the window rule above is not honoured.
+    // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (straight away, as the
+    // event fires when it maps, and again after a beat), in case the window rule above is not honoured.
     function untile(address: string): void {
         const lua = 'pcall(function() hl.dispatch(hl.dsp.window.float({ action = "off", window = "address:0x' + address + '" })) end)';
-        Quickshell.execDetached(["sh", "-c", "sleep 0.15; hyprctl eval '" + lua + "'; sleep 0.4; hyprctl eval '" + lua + "'"]);
+        Quickshell.execDetached(["sh", "-c", "hyprctl eval '" + lua + "'; sleep 0.25; hyprctl eval '" + lua + "'"]);
     }
 
     Connections {
