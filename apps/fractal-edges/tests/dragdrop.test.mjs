@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(dir, "../DragDrop.js"), "utf8").replace(/^\.pragma.*$/m, "") + "\nthis.D={tiles,targetAt,highlight,intentCommand,create,seeTiles,floatEvent,pointer,closed,parseCursor,parseFloatEvent};", ctx);
+vm.runInContext(fs.readFileSync(path.join(dir, "../DragDrop.js"), "utf8").replace(/^\.pragma.*$/m, "") + "\nthis.D={tiles,targetAt,screenZone,screenTarget,highlight,intentCommand,create,seeTiles,floatEvent,pointer,closed,parseCursor,parseFloatEvent};", ctx);
 const D = ctx.D;
 const plain = v => JSON.parse(JSON.stringify(v));
 const status = JSON.parse(fs.readFileSync(path.join(dir, "fixture.json"), "utf8"));
@@ -41,6 +41,29 @@ assert.deepEqual(plain(D.highlight({ zone: "right", box: b })), { x: 300, y: 40,
 assert.deepEqual(plain(D.highlight({ zone: "up", box: b })), { x: 100, y: 40, w: 400, h: 100 });
 assert.deepEqual(plain(D.highlight({ zone: "down", box: b })), { x: 100, y: 140, w: 400, h: 100 });
 assert.deepEqual(plain(D.highlight({ zone: "center", box: b })), b);
+
+// screen edges: halves and quadrants, independent of the windows
+const area = { x: 100, y: 40, w: 1200, h: 800 };
+const sz = (fx, fy) => D.screenZone({ x: area.x + area.w * fx, y: area.y + area.h * fy }, area);
+assert.equal(sz(0.5, 0.5), "", "the middle of the screen is no screen zone");
+assert.equal(sz(0.02, 0.5), "sleft");
+assert.equal(sz(0.98, 0.5), "sright");
+assert.equal(sz(0.5, 0.02), "sup");
+assert.equal(sz(0.5, 0.97), "sdown");
+assert.equal(sz(0.02, 0.03), "qtl", "corner = quadrant");
+assert.equal(sz(0.98, 0.03), "qtr");
+assert.equal(sz(0.02, 0.97), "qbl");
+assert.equal(sz(0.98, 0.97), "qbr");
+assert.equal(D.screenZone({ x: 90, y: 400 }, area), "sleft", "just outside the work area (bar, gaps) still counts");
+assert.equal(D.screenZone({ x: -400, y: 400 }, area), "", "but not far outside it");
+assert.equal(D.screenZone({ x: 105, y: 400 }, area, { band: 0 }), "", "band 0 turns screen zones off");
+const sx = (z) => plain(D.highlight(D.screenTarget(z, area)));
+assert.deepEqual(sx("sleft"), { x: 100, y: 40, w: 600, h: 800 });
+assert.deepEqual(sx("sdown"), { x: 100, y: 440, w: 1200, h: 400 });
+assert.deepEqual(sx("qbr"), { x: 700, y: 440, w: 600, h: 400 });
+assert.deepEqual(sx("qtl"), { x: 100, y: 40, w: 600, h: 400 });
+assert.equal(D.screenTarget("", area), null);
+assert.equal(D.intentCommand("0xabc", D.screenTarget("qtl", area)), "drop-intent 0xabc screen qtl");
 
 // commands (only safe ids make it into a layout command)
 assert.equal(D.intentCommand("0xabc", { address: "0xdef", zone: "left" }), "drop-intent 0xabc 0xdef left");

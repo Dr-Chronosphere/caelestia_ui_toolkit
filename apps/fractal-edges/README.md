@@ -232,9 +232,15 @@ it next to the *focused* tile, wherever you dropped it, and showed nothing while
    else the window goes **beside** the tile on the side the pointer is on (whichever offset from
    the middle is larger decides between left/right and up/down), so it never displaces the app
    underneath.
+   **Screen edges come first**: within 10% of the work area's edge (`FRACTAL_EDGE_SCREEN_BAND`, 0 =
+   off) the window takes a *half* of the screen (left, right, top or bottom), and in a corner a
+   *quadrant* (the other windows are split between the rest), whatever windows happen to exist, so a
+   pure split-screen is always one drop away.
 3. A highlight (`DropHighlight.qml`, namespace `fractal-edges-drop`, click-through) shows where the
    window will sit, gliding between targets.
-4. It tells the layout (`drop-intent <window> <target> <zone>`, from the patched fractal-wm), so when
+4. While you drag, the layout keeps the dragged window's slot (`drag-hold`), so the other tiles
+   **do not reflow** and a swap is a real swap; a window you float on purpose is released after a
+   second. It tells the layout (`drop-intent <window> <target|screen> <zone>`, from the patched fractal-wm), so when
    Hyprland re-tiles the window it lands there. Needs the updated engine patch: re-run
    `caelestia-fractal-setup install`.
 

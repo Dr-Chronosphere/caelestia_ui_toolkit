@@ -332,6 +332,8 @@ ShellRoot {
     // The middle of a tile (FRACTAL_EDGE_SWAP_SIZE of it, default 0.3; 0 = never) swaps the two windows;
     // anywhere else the window goes to the side of the tile the pointer is on.
     readonly property real dragSwapSize: Quickshell.env("FRACTAL_EDGE_SWAP_SIZE") !== "" && Quickshell.env("FRACTAL_EDGE_SWAP_SIZE") !== null && !isNaN(parseFloat(Quickshell.env("FRACTAL_EDGE_SWAP_SIZE"))) ? parseFloat(Quickshell.env("FRACTAL_EDGE_SWAP_SIZE")) : 0.3
+    // Screen-edge zones: this fraction of the work area's width/height at its edges (0 = off).
+    readonly property real dragBand: !isNaN(parseFloat(Quickshell.env("FRACTAL_EDGE_SCREEN_BAND"))) ? parseFloat(Quickshell.env("FRACTAL_EDGE_SCREEN_BAND")) : 0.1
     property var ddTracker: DragDrop.create()
     property var tilesByMon: ({})
     property string ddDragging: ""
@@ -340,6 +342,7 @@ ShellRoot {
     property var dropRect: null          // {x, y, w, h} in layout coordinates, or null
     property string dropZone: ""
     property string intentKey: ""
+    property string heldFor: ""
     property var lastCursor: ({
             "x": 0,
             "y": 0
@@ -355,6 +358,7 @@ ShellRoot {
         dropMon = "";
         dropZone = "";
         intentKey = "";
+        heldFor = "";
     }
 
     function ddHandleEvent(name: string, data: string): void {
@@ -387,14 +391,24 @@ ShellRoot {
                 ddStop();
             return;
         }
+        // The edges of the screen come first: a half or a quadrant, whatever windows exist. Then the
+        // tile under the pointer (its middle swaps, elsewhere the side the pointer is on).
         let hit = null, mon = "";
         for (const name in tilesByMon) {
-            const t = DragDrop.targetAt(p, tilesByMon[name], r.drag, { "swapSize": dragSwapSize });
+            const info = tilesByMon[name];
+            const zone = DragDrop.screenZone(p, info.area, { "band": dragBand });
+            const t = zone ? DragDrop.screenTarget(zone, info.area) : DragDrop.targetAt(p, info.tiles, r.drag, { "swapSize": dragSwapSize });
             if (t) {
                 hit = t;
                 mon = name;
                 break;
             }
+        }
+        if (heldFor !== r.drag) {
+            // confirmed as a drag: keep the window's slot so the other tiles do not reflow
+            heldFor = r.drag;
+            if (/^[A-Za-z0-9_x-]+$/.test(r.drag))
+                Hyprland.dispatch("hl.dsp.layout(\"drag-hold " + r.drag + "\")");
         }
         const key = hit ? r.drag + ">" + hit.address + ":" + hit.zone : "";
         if (key !== intentKey) {
@@ -706,7 +720,10 @@ ShellRoot {
                 const tl = DragDrop.tiles(status);
                 DragDrop.seeTiles(root.ddTracker, tl);
                 const m = Object.assign({}, root.tilesByMon);
-                m[modelData.name] = tl;
+                m[modelData.name] = {
+                    "tiles": tl,
+                    "area": status ? status.area : null
+                };
                 root.tilesByMon = m;
                 if (root.profile)
                     root.prof.status++;

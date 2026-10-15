@@ -56,6 +56,41 @@ function targetAt(p, list, skip, opts) {
     return null;
 }
 
+// Screen-edge zones. Near the edge of the work area (BAND of its width/height, at least MIN_BAND_PX)
+// the window takes a half of the screen: sleft / sright / sup / sdown; near a corner (inside both
+// bands) a quadrant: qtl / qtr / qbl / qbr. These ignore the windows that happen to exist, so a
+// pure split-screen is always one drop away. Returns "" when the pointer is not near an edge.
+var BAND = 0.1;
+var MIN_BAND_PX = 70;
+var OUTSIDE_PX = 60;       // the pointer may sit this far outside the work area (bar, gaps) and still count
+
+function screenZone(p, area, opts) {
+    if (!area)
+        return "";
+    var band = opts && opts.band !== undefined ? opts.band : BAND;
+    if (!(band > 0))
+        return "";
+    if (p.x < area.x - OUTSIDE_PX || p.x > area.x + area.w + OUTSIDE_PX || p.y < area.y - OUTSIDE_PX || p.y > area.y + area.h + OUTSIDE_PX)
+        return "";
+    var bx = Math.max(area.w * band, MIN_BAND_PX), by = Math.max(area.h * band, MIN_BAND_PX);
+    var l = p.x < area.x + bx, r = p.x > area.x + area.w - bx;
+    var t = p.y < area.y + by, b = p.y > area.y + area.h - by;
+    if (l && t) return "qtl";
+    if (r && t) return "qtr";
+    if (l && b) return "qbl";
+    if (r && b) return "qbr";
+    if (l) return "sleft";
+    if (r) return "sright";
+    if (t) return "sup";
+    if (b) return "sdown";
+    return "";
+}
+
+// A drop target for a screen zone, shaped like targetAt's result (address "screen", box = the area).
+function screenTarget(zone, area) {
+    return zone ? { address: "screen", zone: zone, box: area } : null;
+}
+
 // Where the window would sit: half of the target on that side, or the whole tile for a swap.
 function highlight(target) {
     var b = target.box;
@@ -68,6 +103,22 @@ function highlight(target) {
         return { x: b.x, y: b.y, w: b.w, h: b.h / 2 };
     case "down":
         return { x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h / 2 };
+    case "sleft":
+        return { x: b.x, y: b.y, w: b.w / 2, h: b.h };
+    case "sright":
+        return { x: b.x + b.w / 2, y: b.y, w: b.w / 2, h: b.h };
+    case "sup":
+        return { x: b.x, y: b.y, w: b.w, h: b.h / 2 };
+    case "sdown":
+        return { x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h / 2 };
+    case "qtl":
+        return { x: b.x, y: b.y, w: b.w / 2, h: b.h / 2 };
+    case "qtr":
+        return { x: b.x + b.w / 2, y: b.y, w: b.w / 2, h: b.h / 2 };
+    case "qbl":
+        return { x: b.x, y: b.y + b.h / 2, w: b.w / 2, h: b.h / 2 };
+    case "qbr":
+        return { x: b.x + b.w / 2, y: b.y + b.h / 2, w: b.w / 2, h: b.h / 2 };
     }
     return { x: b.x, y: b.y, w: b.w, h: b.h };
 }
