@@ -251,6 +251,8 @@ ShellRoot {
             if (event.name === "configreloaded")
                 root.applyLayerRule();
             root.ddHandleEvent(event.name, String(event.data));
+            if (event.name === "custom")
+                root.swipeEvent(String(event.data));
             if (event.name === "workspace" || event.name === "workspacev2" || event.name === "createworkspacev2" || event.name === "focusedmonv2" || event.name === "configreloaded")
                 wsRefresh.restart();
             if (root.floatEvents.indexOf(event.name) >= 0)
@@ -331,6 +333,42 @@ ShellRoot {
             const v = Seams.parseRounding(String(roundingOut.text || ""));
             if (v !== null)
                 root.windowRounding = v;
+        }
+    }
+
+    // --- the custom workspace swipe (integration/lua/fractal_gestures.lua, swipe_workspaces = true) ---
+    // The gesture handler streams the finger motion as `custom` events: "fractal-swipe,start,<dx>,<threshold>",
+    // "...,move,<dx>", "...,end,<committed>". While it runs the icon cards hide (their windows' workspace
+    // is about to change) and a strip shows how far you have swiped; the cards come back once the
+    // workspace has switched (or at once if the swipe was cancelled).
+    property bool swipeActive: false
+    property real swipeDx: 0
+    property real swipeThreshold: 120
+    readonly property bool cardsHidden: swipeActive || swipeShow.running
+
+    Timer {
+        id: swipeShow
+
+        interval: 700
+    }
+
+    function swipeEvent(data: string): void {
+        const p = data.split(",");
+        if (p[0] !== "fractal-swipe")
+            return;
+        dbg("swipe " + data);
+        if (p[1] === "start") {
+            swipeShow.stop();
+            swipeActive = true;
+            swipeDx = parseFloat(p[2]) || 0;
+            swipeThreshold = parseFloat(p[3]) || 120;
+        } else if (p[1] === "move") {
+            swipeDx = parseFloat(p[2]) || 0;
+        } else if (p[1] === "end") {
+            swipeActive = false;
+            swipeShow.interval = p[2] === "1" ? 700 : 150;
+            swipeShow.restart();
+            swipeDx = 0;
         }
     }
 
@@ -1092,7 +1130,7 @@ ShellRoot {
             // Highlight of where a dragged window will land (click-through).
             PanelWindow {
                 screen: scope.modelData
-                visible: root.dragDrop && ((root.dropRect !== null && root.dropMon === scope.modelData.name) || (root.hopSide !== "" && root.hopMon === scope.modelData.name))
+                visible: (root.dragDrop && ((root.dropRect !== null && root.dropMon === scope.modelData.name) || (root.hopSide !== "" && root.hopMon === scope.modelData.name))) || (root.swipeActive && scope.mon !== null && scope.mon.focused)
                 anchors {
                     top: true
                     bottom: true
@@ -1110,6 +1148,16 @@ ShellRoot {
                     side: root.hopMon === scope.modelData.name ? root.hopSide : ""
                     progress: root.hopProgress
                     workspace: root.hopTargetWs
+                    stripWidth: root.wsEdgePx
+                }
+
+                // The custom workspace swipe: fingers right = previous workspace, left = next.
+                WsHopHint {
+                    anchors.fill: parent
+                    readonly property bool mine: root.swipeActive && scope.mon !== null && scope.mon.focused && Math.abs(root.swipeDx) > 8
+                    side: mine ? (root.swipeDx > 0 ? "prev" : "next") : ""
+                    progress: Math.min(1, Math.abs(root.swipeDx) / Math.max(1, root.swipeThreshold))
+                    workspace: Math.max(1, scope.wsId + (root.swipeDx > 0 ? -1 : 1))
                     stripWidth: root.wsEdgePx
                 }
 
@@ -1157,7 +1205,7 @@ ShellRoot {
             // to the screen. A faint (or fading) card takes no input: taps go to the window beneath.
             function cardRect(i: int): var {
                 const g = cardMap[cardKeys[i]];
-                if (!g || g.leaving || !(g.alpha > 0.3))
+                if (root.cardsHidden || !g || g.leaving || !(g.alpha > 0.3))
                     return {
                         "x": 0,
                         "y": 0,
@@ -1207,122 +1255,134 @@ ShellRoot {
                     CardRegion { rect: scope.cardRect(11) }
                 }
 
-                // Warm-up: one faint, tiny card keeps the wallpaper decoded and the blur/mask
-                // pipelines compiled, so the first real card appears without a hitch.
-                IconCard {
-                    width: 24
-                    height: 24
-                    alpha: 0.01
-                    smooth: false
-                    tint: 0
-                    backdrop: root.wallpaperUrl
-                    backdropW: scope.modelData.width
-                    backdropH: scope.modelData.height
-                    blurAmount: root.blurAmount
-                    cornerRadius: root.cardRadius
-                }
+                // All the cards in one layer, so they can fade out together (a workspace swipe).
+                Item {
+                    anchors.fill: parent
+                    opacity: root.cardsHidden ? 0 : 1
 
-                // The previous workspace's cards, sliding out while the new ones slide in.
-                Repeater {
-                    model: scope.slideSnap ? scope.slideSnap.keys : []
-
-                    delegate: IconCard {
-                        required property string modelData
-
-                        readonly property var geo: scope.slideSnap ? (scope.slideSnap.map[modelData] ?? null) : null
-                        readonly property var slide: Follow.slideOffset(scope.slideDir, scope.slideStyle, false, scope.slideT, scope.modelData.width, scope.modelData.height)
-
-                        visible: geo !== null
-                        x: geo ? Math.round(geo.x - scope.originX + slide.x) : 0
-                        y: geo ? Math.round(geo.y - scope.originY + slide.y) : 0
-                        width: geo ? Math.max(1, Math.round(geo.w)) : 1
-                        height: geo ? Math.max(1, Math.round(geo.h)) : 1
-                        startShown: true
-                        smooth: false
-                        shown: true
-                        alpha: geo && geo.alpha !== undefined ? geo.alpha : 1
-                        tint: root.translucent ? 0.55 : 1
-                        backdrop: root.wallpaperUrl
-                        backdropX: x
-                        backdropY: y
-                        backdropW: scope.modelData.width
-                        backdropH: scope.modelData.height
-                        blurAmount: root.blurAmount
-                        cornerRadius: root.cardRadius
-                        iconSource: geo ? root.iconFor(geo.label) : ""
-                        label: geo ? geo.label : ""
-                        title: geo ? geo.title : ""
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: root.cardsHidden ? 120 : 250
+                        }
                     }
-                }
 
-                Repeater {
-                    model: scope.cardKeys
-
-                    delegate: IconCard {
-                        id: cardItem
-
-                        required property string modelData
-
-                        readonly property var geo: scope.cardMap[modelData] ?? ({
-                                "id": "",
-                                "label": "",
-                                "title": "",
-                                "x": scope.originX,
-                                "y": scope.originY,
-                                "w": 1,
-                                "h": 1,
-                                "alpha": 0,
-                                "leaving": true
-                            })
-
-                        // While a transition is under way the card tracks its window's current rect.
-                        readonly property var live: scope.followOn ? scope.liveRects[geo.address] : undefined
-                        // A new card for a window that just changed size starts from that size and then
-                        // eases to its own (the move animation below), so it shrinks with the window.
-                        property bool started: false
-                        readonly property var base: (geo.fromRect && !started) ? geo.fromRect : geo
-                        readonly property var rect: live ? Follow.cardFromLive(live, root.cardOutset) : base
-                        Component.onCompleted: Qt.callLater(() => cardItem.started = true)
-                        readonly property var slide: scope.sliding ? Follow.slideOffset(scope.slideDir, scope.slideStyle, true, scope.slideT, scope.modelData.width, scope.modelData.height) : ({
-                                "x": 0,
-                                "y": 0
-                            })
-
-                        x: Math.round(rect.x - scope.originX + slide.x)
-                        y: Math.round(rect.y - scope.originY + slide.y)
-                        width: Math.max(1, Math.round(rect.w))
-                        height: Math.max(1, Math.round(rect.h))
-                        // A card made during a slide is simply there (no fade-in from nothing).
-                        startShown: scope.sliding
-                        // The card travels with the compositor's own animation (duration and bezier from
-                        // `hyprctl animations -j`), started when the layout changes, so it moves in step
-                        // with its window with no polling lag. A carried window (a drag) is followed by
-                        // sampling its position instead, with a short linear glide between samples.
-                        moveEnabled: !scope.sliding && !scope.dragging && !root.animSuspended && (scope.followOn || root.moveAnim !== null)
-                        moveMs: scope.followOn ? (root.ddDragging !== "" ? 18 : 45) : (root.moveAnim ? root.moveAnim.ms : 0)
-                        moveCurve: root.moveAnim ? root.moveAnim.curve : [0, 0, 1, 1]
-                        moveLinear: scope.followOn
-                        shown: !geo.leaving
-                        // Opacity eases only for a settled card (after mouse-up, or no drag at all) or one
-                        // leaving; while you drag it tracks the tile directly. The flag travels in the
-                        // same card record as the alpha and is declared BEFORE it, so by the time the
-                        // new alpha is written the Behavior already knows whether to ease (toggling it
-                        // from a separate property raced, and the fade snapped).
-                        smooth: !!geo.settle || !!geo.leaving
-                        alpha: geo.alpha !== undefined ? geo.alpha : 1
-                        tint: root.translucent ? 0.55 : 1
+                    // Warm-up: one faint, tiny card keeps the wallpaper decoded and the blur/mask
+                    // pipelines compiled, so the first real card appears without a hitch.
+                    IconCard {
+                        width: 24
+                        height: 24
+                        alpha: 0.01
+                        smooth: false
+                        tint: 0
                         backdrop: root.wallpaperUrl
-                        backdropX: x
-                        backdropY: y
                         backdropW: scope.modelData.width
                         backdropH: scope.modelData.height
                         blurAmount: root.blurAmount
                         cornerRadius: root.cardRadius
-                        iconSource: root.iconFor(geo.label)
-                        label: geo.label
-                        title: geo.title
-                        onActivated: root.zoomTo(geo.id)
-                        onHovered: root.focusWindow(geo.address)
+                    }
+
+                    // The previous workspace's cards, sliding out while the new ones slide in.
+                    Repeater {
+                        model: scope.slideSnap ? scope.slideSnap.keys : []
+
+                        delegate: IconCard {
+                            required property string modelData
+
+                            readonly property var geo: scope.slideSnap ? (scope.slideSnap.map[modelData] ?? null) : null
+                            readonly property var slide: Follow.slideOffset(scope.slideDir, scope.slideStyle, false, scope.slideT, scope.modelData.width, scope.modelData.height)
+
+                            visible: geo !== null
+                            x: geo ? Math.round(geo.x - scope.originX + slide.x) : 0
+                            y: geo ? Math.round(geo.y - scope.originY + slide.y) : 0
+                            width: geo ? Math.max(1, Math.round(geo.w)) : 1
+                            height: geo ? Math.max(1, Math.round(geo.h)) : 1
+                            startShown: true
+                            smooth: false
+                            shown: true
+                            alpha: geo && geo.alpha !== undefined ? geo.alpha : 1
+                            tint: root.translucent ? 0.55 : 1
+                            backdrop: root.wallpaperUrl
+                            backdropX: x
+                            backdropY: y
+                            backdropW: scope.modelData.width
+                            backdropH: scope.modelData.height
+                            blurAmount: root.blurAmount
+                            cornerRadius: root.cardRadius
+                            iconSource: geo ? root.iconFor(geo.label) : ""
+                            label: geo ? geo.label : ""
+                            title: geo ? geo.title : ""
+                        }
+                    }
+
+                    Repeater {
+                        model: scope.cardKeys
+
+                        delegate: IconCard {
+                            id: cardItem
+
+                            required property string modelData
+
+                            readonly property var geo: scope.cardMap[modelData] ?? ({
+                                    "id": "",
+                                    "label": "",
+                                    "title": "",
+                                    "x": scope.originX,
+                                    "y": scope.originY,
+                                    "w": 1,
+                                    "h": 1,
+                                    "alpha": 0,
+                                    "leaving": true
+                                })
+
+                            // While a transition is under way the card tracks its window's current rect.
+                            readonly property var live: scope.followOn ? scope.liveRects[geo.address] : undefined
+                            // A new card for a window that just changed size starts from that size and then
+                            // eases to its own (the move animation below), so it shrinks with the window.
+                            property bool started: false
+                            readonly property var base: (geo.fromRect && !started) ? geo.fromRect : geo
+                            readonly property var rect: live ? Follow.cardFromLive(live, root.cardOutset) : base
+                            Component.onCompleted: Qt.callLater(() => cardItem.started = true)
+                            readonly property var slide: scope.sliding ? Follow.slideOffset(scope.slideDir, scope.slideStyle, true, scope.slideT, scope.modelData.width, scope.modelData.height) : ({
+                                    "x": 0,
+                                    "y": 0
+                                })
+
+                            x: Math.round(rect.x - scope.originX + slide.x)
+                            y: Math.round(rect.y - scope.originY + slide.y)
+                            width: Math.max(1, Math.round(rect.w))
+                            height: Math.max(1, Math.round(rect.h))
+                            // A card made during a slide is simply there (no fade-in from nothing).
+                            startShown: scope.sliding
+                            // The card travels with the compositor's own animation (duration and bezier from
+                            // `hyprctl animations -j`), started when the layout changes, so it moves in step
+                            // with its window with no polling lag. A carried window (a drag) is followed by
+                            // sampling its position instead, with a short linear glide between samples.
+                            moveEnabled: !scope.sliding && !scope.dragging && !root.animSuspended && (scope.followOn || root.moveAnim !== null)
+                            moveMs: scope.followOn ? (root.ddDragging !== "" ? 18 : 45) : (root.moveAnim ? root.moveAnim.ms : 0)
+                            moveCurve: root.moveAnim ? root.moveAnim.curve : [0, 0, 1, 1]
+                            moveLinear: scope.followOn
+                            shown: !geo.leaving
+                            // Opacity eases only for a settled card (after mouse-up, or no drag at all) or one
+                            // leaving; while you drag it tracks the tile directly. The flag travels in the
+                            // same card record as the alpha and is declared BEFORE it, so by the time the
+                            // new alpha is written the Behavior already knows whether to ease (toggling it
+                            // from a separate property raced, and the fade snapped).
+                            smooth: !!geo.settle || !!geo.leaving
+                            alpha: geo.alpha !== undefined ? geo.alpha : 1
+                            tint: root.translucent ? 0.55 : 1
+                            backdrop: root.wallpaperUrl
+                            backdropX: x
+                            backdropY: y
+                            backdropW: scope.modelData.width
+                            backdropH: scope.modelData.height
+                            blurAmount: root.blurAmount
+                            cornerRadius: root.cardRadius
+                            iconSource: root.iconFor(geo.label)
+                            label: geo.label
+                            title: geo.title
+                            onActivated: root.zoomTo(geo.id)
+                            onHovered: root.focusWindow(geo.address)
+                        }
                     }
                 }
             }

@@ -106,5 +106,49 @@ test("reports whether hyprgrass (touchscreen pinch) is loaded", function()
   assert(slurp():find("hyprgrass is loaded", 1, true))
 end)
 
+test("custom workspace swipe: opt-in, streams events to the overlay, changes workspace on release", function()
+  local env = fake()
+  env.events, env.focus = {}, {}
+  hl.dsp.event = function(msg) return "event:" .. msg end
+  hl.dsp.focus = function(a) return "focus:" .. tostring(a.workspace) end
+  hl.dispatch = function(d) if d:match("^event:") then env.events[#env.events + 1] = d:sub(7) else env.focus[#env.focus + 1] = d end end
+  require("fractal_gestures").setup()
+  for _, s in ipairs(env.specs) do assert(s.direction ~= "horizontal", "no workspace gesture unless asked for") end
+  env = fake()
+  env.events, env.focus = {}, {}
+  hl.dsp.event = function(msg) return "event:" .. msg end
+  hl.dsp.focus = function(a) return "focus:" .. tostring(a.workspace) end
+  hl.dispatch = function(d) if d:match("^event:") then env.events[#env.events + 1] = d:sub(7) else env.focus[#env.focus + 1] = d end end
+  require("fractal_gestures").setup({ swipe_workspaces = true, swipe_threshold = 100 })
+  local sw
+  for _, s in ipairs(env.specs) do if s.direction == "horizontal" then sw = s end end
+  eq(sw.fingers, 4); eq(type(sw.action), "table", "a live gesture table")
+  sw.action.start({ delta = { x = 0, y = 0 }, time_ms = 0 })
+  sw.action.update({ delta = { x = 60, y = 0 }, time_ms = 20 })
+  sw.action.update({ delta = { x = 70, y = 0 }, time_ms = 25 })     -- inside 16 ms of the last: not emitted
+  sw.action.update({ delta = { x = 10, y = 0 }, time_ms = 50 })
+  sw.action.finish({ cancelled = false, time_ms = 60 })
+  eq(env.events[1], "fractal-swipe,start,0,100")
+  eq(env.events[2], "fractal-swipe,move,60")
+  eq(env.events[3], "fractal-swipe,move,140", "throttled: the 25 ms update was folded into the next one")
+  eq(env.events[4], "fractal-swipe,end,1")
+  eq(env.focus[1], "focus:-1", "swiping right goes to the previous workspace")
+  -- too short, or cancelled: no workspace change
+  env.focus = {}
+  sw.action.start({ delta = { x = 0, y = 0 }, time_ms = 100 })
+  sw.action.update({ delta = { x = -30, y = 0 }, time_ms = 130 })
+  sw.action.finish({ cancelled = false, time_ms = 140 })
+  eq(#env.focus, 0, "short swipe: no change")
+  sw.action.start({ delta = { x = 0, y = 0 }, time_ms = 200 })
+  sw.action.update({ delta = { x = -300, y = 0 }, time_ms = 230 })
+  sw.action.finish({ cancelled = true, time_ms = 240 })
+  eq(#env.focus, 0, "cancelled: no change")
+  sw.action.start({ delta = { x = 0, y = 0 }, time_ms = 300 })
+  sw.action.update({ delta = { x = -300, y = 0 }, time_ms = 330 })
+  sw.action.finish({ cancelled = false, time_ms = 340 })
+  eq(env.focus[1], "focus:+1", "swiping left goes to the next workspace")
+  eq(env.events[#env.events], "fractal-swipe,end,1")
+end)
+
 print(string.format("%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)

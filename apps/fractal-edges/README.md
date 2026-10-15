@@ -301,3 +301,23 @@ the window's slot on the old workspace first (`drag-release`).
 - The move uses Hyprland's Lua API (`hl.dsp.window.move({ workspace, follow, window })`, falling back
   to move + `hl.dsp.focus({ workspace })`) through `hyprctl eval`; I couldn't verify those names, so
   run with `FRACTAL_EDGE_DEBUG=1` and read `workspace hop result: …` in the log if nothing happens.
+
+## Custom workspace swipe (hides the cards while you swipe)
+
+Hyprland's native workspace swipe gives programs no signal, so the icon cards can't know it is under
+way (they'd stay put while the windows slide). With the custom handler they can:
+
+1. In `~/.config/hypr/hyprland/gestures.lua` remove or comment out your own
+   `hl.gesture({ ..., direction = "horizontal", action = "workspace" })` (Hyprland keeps the first
+   gesture registered for a finger count + direction).
+2. In `hyprland.lua` change the setup line to
+   `require("hypr.fractal_gestures").setup({ swipe_workspaces = true })`
+   (`workspace_fingers = 4` and `swipe_threshold = 120` are the defaults), then `hyprctl reload`.
+
+The gesture is a live Lua gesture (`start` / `update` / `finish`): it streams the finger motion to the
+overlay with `hl.dsp.event`, which shows up here as a `custom` event. While you swipe the cards fade
+out and a strip shows how far you have gone ("Workspace N", filling up to the threshold); on release
+past the threshold the workspace changes with Hyprland's normal workspace animation (previous when
+you swipe right, next when you swipe left), and the cards return after the slide. The windows
+themselves do **not** follow the fingers: Lua can't offset a workspace.
+`FRACTAL_EDGE_DEBUG=1` logs the `swipe …` events.

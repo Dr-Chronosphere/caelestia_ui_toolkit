@@ -8,6 +8,14 @@
 --   `fingers` (3) swipe UP            -> zoom-in  (the focused window fills the view)
 --   `fingers` (3) swipe DOWN          -> zoom-out
 --   `special_fingers` (4) swipe up or down -> toggle the special workspace (scratchpad) `special`
+--   `swipe_workspaces = true`: a custom workspace swipe on `workspace_fingers` (4) fingers, in place of
+--     Hyprland's native one (remove/comment your own `action = "workspace"` gesture first: the first
+--     registered gesture for a finger count + direction wins). A live Lua gesture reports the finger
+--     motion, which is streamed to the Quickshell overlay (`hl.dsp.event`, seen there as a `custom`
+--     event) so it can hide the icon cards and show how far you have swiped; on release past
+--     `swipe_threshold` the workspace changes (previous when you swipe right, next when left, like
+--     Hyprland's default). The windows themselves do not follow the fingers: Lua cannot offset a
+--     workspace. Without `swipe_workspaces`, `workspace_fingers` registers the native swipe.
 --   `workspace_fingers` (off by default) swipe left or right -> switch workspace. Caelestia's own
 --     hyprland/gestures.lua already binds this (4 fingers), and Hyprland keeps the FIRST gesture
 --     registered for a finger count + direction, so ours would only be shadowed; enable it if you
@@ -58,6 +66,45 @@ local function try(label, spec)
   return ok
 end
 
+-- The custom workspace swipe (see the header): a live gesture whose callbacks stream the finger
+-- motion to the overlay as `custom` events (`fractal-swipe,<start|move|end>,<dx>,<extra>`) and
+-- change workspace on release.
+local function emit(msg)
+  if type(hl) ~= "table" or not (type(hl.dsp) == "table" and type(hl.dsp.event) == "function") then return end
+  pcall(function() hl.dispatch(hl.dsp.event(msg)) end)
+end
+
+local function go_workspace(rel)
+  pcall(function() hl.dispatch(hl.dsp.focus({ workspace = rel })) end)
+end
+
+local function swipe_action(threshold)
+  local total, last_ms = 0, -1000
+  local function dx_of(e) return (type(e) == "table" and type(e.delta) == "table" and tonumber(e.delta.x)) or 0 end
+  return {
+    start = function(e)
+      total, last_ms = dx_of(e), -1000
+      emit(string.format("fractal-swipe,start,%d,%d", math.floor(total), threshold))
+    end,
+    update = function(e)
+      total = total + dx_of(e)
+      local t = (type(e) == "table" and tonumber(e.time_ms)) or 0
+      if t - last_ms >= 16 then                  -- at most ~60 events a second
+        last_ms = t
+        emit(string.format("fractal-swipe,move,%d", math.floor(total)))
+      end
+    end,
+    finish = function(e)
+      local cancelled = type(e) == "table" and e.cancelled == true
+      local commit = (not cancelled) and math.abs(total) >= threshold
+      if commit then go_workspace(total > 0 and "-1" or "+1") end   -- fingers right = previous, like the default
+      emit(string.format("fractal-swipe,end,%d", commit and 1 or 0))
+      total = 0
+    end,
+  }
+end
+M.swipe_action = swipe_action
+
 function M.setup(opts)
   opts = opts or {}
   log_lines = {}
@@ -82,7 +129,11 @@ function M.setup(opts)
       try(special_fingers .. "-finger vertical swipe -> toggle special workspace '" .. special .. "'",
         { fingers = special_fingers, direction = "vertical", action = "special", workspace_name = special })
     end
-    if workspace_fingers then
+    if opts.swipe_workspaces then
+      local wf = workspace_fingers or 4
+      try(wf .. "-finger horizontal swipe -> custom workspace swipe (overlay hides cards)",
+        { fingers = wf, direction = "horizontal", action = swipe_action(opts.swipe_threshold or 120) })
+    elseif workspace_fingers then
       try(workspace_fingers .. "-finger horizontal swipe -> switch workspace",
         { fingers = workspace_fingers, direction = "horizontal", action = "workspace" })
     end

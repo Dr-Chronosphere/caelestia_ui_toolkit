@@ -102,3 +102,8 @@ that want to be embedded in it.
   at `hyprland.lua.bak-fractal`) so every workspace uses fractal, not just ones you ran `fractal on`
   on. Delete the two added lines to undo. The edge overlay only draws on workspaces whose layout is
   `lua:fractal` and that have a `ws-<id>.json` (`bin/caelestia-fractal-edges doctor` shows both).
+
+- **Custom workspace swipe** (`setup({ swipe_workspaces = true })`): a live Lua gesture that streams finger motion to the Quickshell
+  overlay (`hl.dsp.event`) so the icon cards can hide while you swipe and a strip can show progress; the workspace changes on
+  release. It replaces the native `action = "workspace"` swipe (remove that one from your config), so the windows no longer follow
+  the fingers 1:1 (Lua has no workspace-offset API). See `apps/fractal-edges/README.md`.
