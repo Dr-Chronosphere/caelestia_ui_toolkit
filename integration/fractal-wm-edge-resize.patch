@@ -1,0 +1,316 @@
+diff --git a/lua/fractal.lua b/lua/fractal.lua
+index f4f204f..6f8a47a 100644
+--- a/lua/fractal.lua
++++ b/lua/fractal.lua
+@@ -64,12 +64,43 @@ local function load_state(ws)
+   return tree
+ end
+ 
+-local function save(ws, tree)
++local function save_state(ws, tree)
+   write_file(state_path(ws), T.serialize(tree))
++end
++
++local function save_status(ws, tree)
+   write_file(string.format("%s/ws-%s.txt", RUNTIME_DIR, ws_key(ws)), T.render(tree) .. "\n")
+   write_file(string.format("%s/ws-%s.json", RUNTIME_DIR, ws_key(ws)), T.to_json(tree, { workspace = tonumber(ws_key(ws)) or ws_key(ws) }) .. "\n")
+ end
+ 
++local function save(ws, tree)
++  save_state(ws, tree)
++  save_status(ws, tree)
++end
++
++-- Dragging an edge sends dozens of `edge` commands a second. Widgets need the status file
++-- at once; the persisted state can wait until the drag pauses, so write it at most every
++-- 400 ms instead of on every command.
++local state_dirty, state_timer = {}, false
++local function save_soon(ws, tree)
++  save_status(ws, tree)
++  state_dirty[ws] = true
++  if state_timer then return end
++  state_timer = true
++  local ok = pcall(hl.timer, function()
++    state_timer = false
++    for k in pairs(state_dirty) do
++      state_dirty[k] = nil
++      local t = M.trees[k]
++      if t then pcall(save_state, k, t) end
++    end
++  end, { timeout = 400, type = "oneshot" })
++  if not ok then
++    state_timer = false
++    save_state(ws, tree)
++  end
++end
++
+ -- ------------------------------------------------------------ hypr glue --
+ 
+ local function tree_for(ws)
+@@ -177,7 +208,10 @@ M.retag = retag
+ 
+ local function apply(tree, ctx)
+   local area = ctx.area
+-  local boxes = T.layout(tree, area)
++  local nodes = {}
++  local boxes = T.layout(tree, area, nodes)
++  -- Published in the status file so shell widgets can draw edge handles (not persisted).
++  tree.geometry = { area = { x = area.x, y = area.y, w = area.w, h = area.h }, nodes = nodes }
+   local pw, ph = math.max(200, math.floor(area.w / 3)), math.max(150, math.floor(area.h / 3))
+   -- Remember each window's last visible box: a parked window keeps that size,
+   -- so its app does not reflow and the map's thumbnail still shows it as it was.
+@@ -265,6 +299,7 @@ fractal layout commands (hl.dsp.layout("<cmd>") / fractal <cmd>):
+   move left|right|up|down    move the focused window, i3-style
+   tab next|prev              cycle a tabs container
+   grow | shrink              change the focused window's share
++  edge <id> <id> <ratio>     move the edge between two adjacent siblings (first gets ratio of their space)
+   desktop on|off             add or remove the wallpaper leaf
+   reset                      rebuild the tree from the live windows
+   tree | status | help]]
+@@ -353,6 +388,10 @@ local function handle(tree, msg)
+     return T.resize(tree, 1.15) and "grew" or "nothing to resize"
+   elseif cmd == "shrink" then
+     return T.resize(tree, 1 / 1.15) and "shrank" or "nothing to resize"
++  elseif cmd == "edge" then
++    local ratio = tonumber(words[4])
++    if not (words[2] and words[3] and ratio) then return "usage: edge <id> <id> <ratio 0-1>" end
++    return T.edge(tree, words[2], words[3], ratio) and "edge moved" or "can't move that edge"
+   elseif cmd == "desktop" then
+     local d = T.desktop_node(tree)
+     if arg == "on" and not d then
+@@ -407,7 +446,7 @@ function M.layout_msg(ctx, msg)
+     local before = tree.focused
+     reply = handle(tree, msg)
+     apply(tree, ctx)
+-    save(ws, tree)
++    if tostring(msg):match("^%s*edge%s") then save_soon(ws, tree) else save(ws, tree) end
+     write_file(RUNTIME_DIR .. "/last-reply.txt", tostring(reply) .. "\n")
+     if tree.focused and tree.focused ~= before then settle_focus(tree, tree.focused) end
+     if M.notify and reply and not reply:find("\n") then notify(reply) end
+diff --git a/lua/fractal_tree.lua b/lua/fractal_tree.lua
+index 7dae2d2..5095e93 100644
+--- a/lua/fractal_tree.lua
++++ b/lua/fractal_tree.lua
+@@ -708,19 +708,55 @@ function T.resize(tree, factor)
+   return leaf
+ end
+ 
++-- Move the edge between two adjacent siblings of a row/column so that `a` gets
++-- `ratio` (0-1) of the space the two share. Only the shown siblings count (hidden
++-- and out-of-view ones take no space), the pair's combined weight is preserved, and
++-- both weights stay within the usual limits. Returns true if the weights changed.
++function T.edge(tree, a_id, b_id, ratio)
++  local a, b = T.find(tree, a_id), T.find(tree, b_id)
++  ratio = tonumber(ratio)
++  if not a or not b or not ratio or a == b or a.parent ~= b.parent then return false end
++  local parent = a.parent
++  if not parent or (parent.kind ~= "row" and parent.kind ~= "column") then return false end
++  local shown = {}
++  for _, c in ipairs(parent.children) do
++    if has_visible(tree, c) then shown[#shown + 1] = c end
++  end
++  local ia, ib
++  for i, c in ipairs(shown) do
++    if c == a then ia = i elseif c == b then ib = i end
++  end
++  if not ia or not ib or math.abs(ia - ib) ~= 1 then return false end
++  if ia > ib then ratio = 1 - ratio end -- `a` is the later sibling: ratio is its share
++  if ia > ib then a, b = b, a end         -- normalise: a is first, b second
++  local sum = a.weight + b.weight
++  local lo, hi = math.max(MIN_WEIGHT, sum - MAX_WEIGHT), math.min(MAX_WEIGHT, sum - MIN_WEIGHT)
++  if lo > hi then return false end
++  local wa = math.min(hi, math.max(lo, ratio * sum))
++  if math.abs(wa - a.weight) < 1e-9 then return true end
++  a.weight, b.weight = wa, sum - wa
++  return true
++end
++
+ -- ---------------------------------------------------------------- layout --
+ 
+ -- Returns { [address] = {x=,y=,w=,h=} } for the windows visible in the viewport.
+ -- Boxes are raw tile boxes (no gaps): the caller hands them to target:place(),
+ -- which applies gaps and borders the way the built-in layouts do.
+-function T.layout(tree, area)
++-- If `nodes` is a table it is filled with { [node.id] = box } for every placed node,
++-- containers included (used for the status file and mouse/touch edge handles).
++function T.layout(tree, area, nodes)
+   local boxes = {}
+   local function place(node, b)
+     if node.kind == "window" and node.address then
+-      if leaf_visible(tree, node) then boxes[node.address] = { x = b.x, y = b.y, w = b.w, h = b.h } end
++      if leaf_visible(tree, node) then
++        boxes[node.address] = { x = b.x, y = b.y, w = b.w, h = b.h }
++        if nodes then nodes[node.id] = { x = b.x, y = b.y, w = b.w, h = b.h } end
++      end
+       return
+     end
+     if not is_container(node) or #node.children == 0 then return end
++    if nodes then nodes[node.id] = { x = b.x, y = b.y, w = b.w, h = b.h } end
+     if node.kind == "tabs" then
+       local c = active_child(node)
+       if c and not has_visible(tree, c) then
+@@ -884,6 +920,8 @@ local function json_node(n, tree, f, names)
+     '"focused":' .. tostring(n == f),
+     '"visible":' .. tostring(T.is_visible(tree, n) or (is_container(n) and contains(tree.viewport, n) and has_visible(tree, n))),
+   }
++  local g = tree.geometry and tree.geometry.nodes[n.id]
++  if g then parts[#parts + 1] = string.format('"box":{"x":%.1f,"y":%.1f,"w":%.1f,"h":%.1f}', g.x, g.y, g.w, g.h) end
+   if n.address then parts[#parts + 1] = '"address":' .. json_str(n.address) end
+   if n.title then parts[#parts + 1] = '"title":' .. json_str(n.title) end
+   if names[n.id] then parts[#parts + 1] = '"framing":' .. json_str(names[n.id]) end
+@@ -921,6 +959,10 @@ function T.to_json(tree, extra)
+     '"canForward":' .. tostring(#tree.forward > 0),
+     '"tree":' .. json_node(tree.root, tree, f, names),
+   }
++  if tree.geometry then
++    local a = tree.geometry.area
++    parts[#parts + 1] = string.format('"area":{"x":%.1f,"y":%.1f,"w":%.1f,"h":%.1f}', a.x, a.y, a.w, a.h)
++  end
+   for k, v in pairs(extra or {}) do
+     parts[#parts + 1] = json_str(k) .. ":" .. (type(v) == "number" and tostring(v) or json_str(v))
+   end
+diff --git a/tests/test_glue.lua b/tests/test_glue.lua
+index e2ae2ae..f6b7a27 100644
+--- a/tests/test_glue.lua
++++ b/tests/test_glue.lua
+@@ -236,5 +236,56 @@ test("last visible sizes are forgotten when windows close", function()
+   eq(tree.last_box["0xa"] ~= nil, true, "a still remembered")
+ end)
+ 
++test("edge command moves the boundary and the status file carries the geometry", function()
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  local tree = _G.__fractal.impl.trees["9"]
++  local a, col = tree.root.children[1], tree.root.children[2]
++  ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, string.format("edge %s %s 0.25", a.id, col.id))
++  eq(reply(), "edge moved")
++  eq(fmt(ctx.placed["0xa"]), "0,0,300,800")
++  eq(fmt(ctx.placed["0xb"]), "300,0,900,400")
++  local f = io.open(root .. "/run/fractal-wm/ws-9.json")
++  local json = f:read("a")
++  f:close()
++  eq(json:find('"box":{"x":300.0,"y":0.0,"w":900.0,"h":800.0}', 1, true) ~= nil, true, "column box in status")
++  eq(json:find('"area":{"x":0.0,"y":0.0,"w":1200.0,"h":800.0}', 1, true) ~= nil, true, "area in status")
++  provider.layout_msg(ctx_for({ A, B, C }), "edge nope nope 0.5")
++  eq(reply(), "can't move that edge")
++  provider.layout_msg(ctx_for({ A, B, C }), "edge x")
++  eq(reply():match("^usage"), "usage")
++end)
++
++test("edge commands write the status file at once but persist state only after a pause", function()
++  for _, fn in ipairs(calls.timers) do pcall(fn) end   -- let earlier tests' timers fire, as the runtime would
++  calls.timers = {}
++  active_window = A
++  local ctx = ctx_for({ A, B, C })
++  provider.layout_msg(ctx, "reset")
++  provider.recalculate(ctx)
++  local tree = _G.__fractal.impl.trees["9"]
++  local a, col = tree.root.children[1], tree.root.children[2]
++  local function slurp(path) local f = io.open(path) local t = f and f:read("a") f:close() return t end
++  local state_path = root .. "/state/fractal-wm/ws-9.lua"
++  local before = slurp(state_path)
++  local timers_before = 0
++  for _, r in ipairs({ 0.3, 0.35, 0.4 }) do
++    provider.layout_msg(ctx_for({ A, B, C }), string.format("edge %s %s %s", a.id, col.id, r))
++  end
++  eq(slurp(state_path), before, "state file untouched while dragging")
++  eq(slurp(root .. "/run/fractal-wm/ws-9.json"):find('"w":480.0', 1, true) ~= nil, true, "status file current (a is 40% of 1200)")
++  for _, fn in ipairs(calls.timers) do pcall(fn) end    -- the pause: timers fire
++  local after1 = slurp(state_path)
++  eq(after1 ~= before, true, "state persisted after the pause")
++  calls.timers = {}
++  provider.layout_msg(ctx_for({ A, B, C }), string.format("edge %s %s 0.5", a.id, col.id))
++  eq(slurp(state_path), after1, "second drag: state again untouched until the pause")
++  for _, fn in ipairs(calls.timers) do pcall(fn) end
++  eq(slurp(state_path) ~= after1, true, "second drag persisted too (a new timer was scheduled)")
++end)
++
+ print(string.format("%d passed, %d failed", passed, failed))
+ os.exit(failed == 0 and 0 or 1)
+diff --git a/tests/test_tree.lua b/tests/test_tree.lua
+index 880b759..3b5c7ce 100644
+--- a/tests/test_tree.lua
++++ b/tests/test_tree.lua
+@@ -399,5 +399,79 @@ test("tabs with a hidden active child fall back to a visible one", function()
+   eq(keys(T.layout(t, AREA)), "a,c")
+ end)
+ 
++test("layout can report the box of every placed node, containers included", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  T.add_window(t, "c", "C", WIDE)
++  local nodes = {}
++  local boxes = T.layout(t, WIDE, nodes)
++  eq(box(nodes[t.root.id]), "0,0,1368,886")
++  local col = t.root.children[2]
++  eq(box(nodes[col.id]), "684,0,684,886")
++  eq(box(nodes[col.children[1].id]), box(boxes.b))
++end)
++
++test("edge moves the boundary between two adjacent siblings", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  local a, b = t.root.children[1], t.root.children[2]
++  eq(T.edge(t, a.id, b.id, 0.25), true)
++  eq(box(T.layout(t, WIDE).a), "0,0,342,886")
++  eq(box(T.layout(t, WIDE).b), "342,0,1026,886")
++  -- naming the pair the other way round: the first argument still gets `ratio` of the space
++  eq(T.edge(t, b.id, a.id, 0.25), true)
++  eq(box(T.layout(t, WIDE).b), "1026,0,342,886")
++  eq(a.weight + b.weight, 2, "combined weight preserved")
++end)
++
++test("edge clamps to the weight limits and rejects non-adjacent or non-sibling nodes", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  T.add_window(t, "c", "C", WIDE)           -- a | (b / c)
++  local a, col = t.root.children[1], t.root.children[2]
++  local b, c = col.children[1], col.children[2]
++  eq(T.edge(t, a.id, col.id, 0.001), true)
++  eq(a.weight >= 0.2 - 1e-9 and a.weight <= 5, true, "clamped")
++  eq(T.edge(t, a.id, b.id, 0.5), false, "not siblings")
++  eq(T.edge(t, b.id, b.id, 0.5), false, "same node")
++  eq(T.edge(t, b.id, "nope", 0.5), false, "unknown id")
++  eq(T.edge(t, b.id, c.id, "x"), false, "bad ratio")
++  eq(T.edge(t, b.id, c.id, 0.7), true)
++  local lb = T.layout(t, WIDE)
++  eq(math.abs(lb.b.h - 0.7 * 886) < 0.01, true, "b gets 70% of the column")
++  eq(math.abs(lb.c.h - 0.3 * 886) < 0.01, true, "c gets the rest")
++end)
++
++test("edge ignores hidden siblings and refuses tabs containers", function()
++  local t = T.new()
++  T.attach(t.root, leaf(t, "a"))
++  T.attach(t.root, leaf(t, "b"))
++  T.attach(t.root, leaf(t, "c"))
++  local a, b, c = t.root.children[1], t.root.children[2], t.root.children[3]
++  T.hide(t, b.id)
++  eq(T.edge(t, a.id, c.id, 0.5), true, "a and c are adjacent once b is hidden")
++  eq(T.edge(t, a.id, b.id, 0.5), false, "hidden tile has no edge")
++  local tabs_t = T.new()
++  local tabs = T.attach(tabs_t.root, T.node(tabs_t, "tabs"))
++  T.attach(tabs, leaf(tabs_t, "x")); T.attach(tabs, leaf(tabs_t, "y"))
++  eq(T.edge(tabs_t, tabs.children[1].id, tabs.children[2].id, 0.5), false, "tabs have no edges")
++end)
++
++test("status JSON carries node boxes and the work area when geometry is set", function()
++  local t = T.new()
++  make(t, "a")
++  T.add_window(t, "b", "B", WIDE)
++  eq(T.to_json(t):find('"box"', 1, true), nil, "no geometry, no boxes")
++  local nodes = {}
++  T.layout(t, WIDE, nodes)
++  t.geometry = { area = WIDE, nodes = nodes }
++  local j = T.to_json(t)
++  eq(j:find('"area":{"x":0.0,"y":0.0,"w":1368.0,"h":886.0}', 1, true) ~= nil, true, "area")
++  eq(j:find('"box":{"x":684.0,"y":0.0,"w":684.0,"h":886.0}', 1, true) ~= nil, true, "window box")
++end)
++
+ print(string.format("%d passed, %d failed", passed, failed))
+ os.exit(failed == 0 and 0 or 1)

@@ -1,0 +1,62 @@
+#!/usr/bin/env sh
+# Mouse/touch edge handles for the fractal-wm layout.
+#
+#   caelestia-fractal-edges [start|stop|restart|doctor]
+#
+# Runs as its own background Quickshell instance. Needs the fractal layout with
+# integration/fractal-wm-edge-resize.patch applied.
+set -e
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+repo=$(dirname "$here")
+dir="$repo/apps/fractal-edges"
+export QML_IMPORT_PATH="$repo/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+
+running() { pgrep -f -- "$dir" >/dev/null 2>&1; }
+
+# Ask the overlay to tear its windows down and exit; fall back to killing it. Then wait
+# for it to be gone, so a following `start` (which uses --no-duplicate) cannot race it.
+stop() {
+    if qs -p "$dir" ipc call fractaledges isRunning >/dev/null 2>&1; then
+        qs -p "$dir" ipc call fractaledges quit >/dev/null 2>&1 || qs -p "$dir" kill >/dev/null 2>&1 || true
+    else
+        qs -p "$dir" kill >/dev/null 2>&1 || true
+    fi
+    i=0
+    while running; do
+        i=$((i + 1))
+        [ "$i" -gt 30 ] && { echo "caelestia-fractal-edges: still running after 3 s" >&2; return 1; }
+        sleep 0.1
+    done
+}
+
+# Print what the overlay depends on, per workspace: which layout Hyprland reports and whether the
+# layout has written a status file for it. Handles need both.
+doctor() {
+    rt="${XDG_RUNTIME_DIR:-/tmp}/fractal-wm"
+    echo "== workspaces (layout reported by Hyprland) =="
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl workspaces -j | jq -r '.[] | "ws \(.id)  name=\(.name)  monitor=\(.monitor)  windows=\(.windows)  tiledLayout=\(.tiledLayout // "(none reported)")"'
+    else
+        hyprctl workspaces -j
+    fi
+    echo
+    echo "== status files in $rt =="
+    ls -l --time-style=+%T "$rt" 2>/dev/null | grep -E 'ws-.*\.json' || echo "(no ws-*.json files)"
+    echo
+    echo "== active workspace per monitor =="
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl monitors -j | jq -r '.[] | "\(.name): ws \(.activeWorkspace.id)"'
+    else
+        hyprctl monitors -j
+    fi
+    echo
+    echo "Handles for a workspace need: tiledLayout = lua:fractal AND a fresh ws-<id>.json."
+}
+
+case "${1:-start}" in
+    doctor) doctor ;;
+    start) exec qs -p "$dir" --no-duplicate --daemonize ;;
+    stop) stop ;;
+    restart) stop; exec qs -p "$dir" --no-duplicate --daemonize ;;
+    *) echo "usage: caelestia-fractal-edges [start|stop|restart|doctor]" >&2; exit 2 ;;
+esac

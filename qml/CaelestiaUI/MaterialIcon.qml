@@ -11,6 +11,12 @@ StyledText {
     property int grade: Theme.light ? 0 : -25
     property int iconSize: Theme.iconSize.medium
 
+    // Fixed square box so a missing icon font (names render as plain words) cannot
+    // blow up layouts; the ligature name is simply clipped.
+    width: implicitHeight
+    clip: true
+    horizontalAlignment: Text.AlignHCenter
+
     font.family: Theme.iconFamily
     font.pointSize: iconSize
     font.variableAxes: ({
