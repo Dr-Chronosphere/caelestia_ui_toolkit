@@ -70,6 +70,13 @@ ShellRoot {
     // Belt and braces: when one of our windows opens, tell Hyprland to un-float it directly (straight away, as the
     // event fires when it maps, and again after a beat), in case the window rule above is not honoured.
     property var untiled: ({})
+
+    // Always-on trace of the tiling step, so a missing/odd result can be explained:
+    // ~/.local/state/caelestia-files/tile.log
+    function note(msg: string): void {
+        const line = msg.replace(/'/g, "");
+        Quickshell.execDetached(["sh", "-c", 'log="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia-files/tile.log"; mkdir -p "$(dirname "$log")"; echo "$(date +%T) \'' + line + '\'" >> "$log"']);
+    }
     readonly property bool debugTile: Quickshell.env("FILES_DEBUG") === "1"
 
     function untile(address: string): void {
@@ -110,15 +117,19 @@ ShellRoot {
                 const title = parts.slice(event.name === "openwindow" ? 3 : 1).join(",");
                 if (root.debugTile)
                     console.log("[files] " + event.name + " " + parts[0] + " title=" + title);
-                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0 && !root.untiled[parts[0]]) {
-                    root.untiled[parts[0]] = true;
-                    root.untile(parts[0]);
+                if (/^[0-9a-f]+$/.test(parts[0]) && title.indexOf("Files #") === 0) {
+                    if (!root.untiled[parts[0]]) {
+                        root.untiled[parts[0]] = true;
+                        root.note("saw " + event.name + " for window 0x" + parts[0] + " (" + title + "), un-floating");
+                        root.untile(parts[0]);
+                    }
                 }
             }
         }
     }
 
     Component.onCompleted: {
+        note("app started ", tiling " + (tile ? "on" : "off (FILES_TILE=off)"));
         applyTileRule();
         model.newWindow(Quickshell.env("FILES_START") || home);
     }
