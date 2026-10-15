@@ -10,7 +10,8 @@ Rectangle {
     signal activated(string path)
 
     implicitWidth: 200
-    color: Theme.palette.m3surfaceContainerLow
+    property real surfaceAlpha: 1
+    color: Qt.alpha(Theme.palette.m3surfaceContainerLow, Math.min(1, surfaceAlpha * 0.9))
 
     Column {
         anchors.fill: parent

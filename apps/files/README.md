@@ -62,3 +62,15 @@ become one window with both windows' tabs (each tab keeps its folder and back/fo
 - `FILES_START=/some/dir` sets the first window's folder.
 - Logic: `logic/Tabs.js` (tab list) and `logic/Merge.js` (drag detection), tested by
   `tests/tabs.test.mjs`; `tests/run_tabs_ui_tests.py` covers the tab UI and merge headlessly.
+
+## Look (after the reference design)
+
+- **Header:** the folder's name as a title, with search, sort, hidden-files and an "Icon view" / "List
+  view" toggle on the right; navigation and the breadcrumb on the second row.
+- **Tiles:** folders show their item count ("4 items"), files their kind and size ("PDF · 2 kB");
+  images get thumbnails.
+- **Translucent window:** `FILES_OPACITY` (0.3 to 1, default 0.92). The window is see-through; for
+  the desktop behind it to be *blurred* too, add a Hyprland window rule with blur for the explorer,
+  for example (Lua config) `hl.window_rule({ match = { title = "^Files #" }, blur = true })`. The
+  exact rule syntax depends on your Hyprland version, so check it against your config's other
+  window rules.

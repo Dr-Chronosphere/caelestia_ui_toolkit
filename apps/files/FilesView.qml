@@ -18,6 +18,8 @@ Rectangle {
     property int sortField: FolderListModel.Name
     property bool sortReversed: false
     property int selectedIndex: -1
+    // 1 = opaque; lower lets the desktop (and the compositor's blur) show through the window.
+    property real surfaceAlpha: 1
 
     readonly property alias model: folder
     readonly property alias searchField: search
@@ -121,7 +123,7 @@ Rectangle {
         };
     }
 
-    color: Theme.palette.m3surface
+    color: Qt.alpha(Theme.palette.m3surface, surfaceAlpha)
     implicitWidth: 960
     implicitHeight: 640
     focus: true
@@ -202,14 +204,66 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 64
+        height: 100
 
+        // Row 1: the folder's name, and the view / search / sort tools.
+        StyledText {
+            id: title
+
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.padding.large
+            anchors.top: parent.top
+            anchors.topMargin: Theme.padding.medium
+            height: 40
+            verticalAlignment: Text.AlignVCenter
+            text: root.folderName
+            font: Theme.title.large
+            color: Theme.palette.m3onSurface
+        }
+
+        Row {
+            id: tools
+
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.padding.medium
+            anchors.verticalCenter: title.verticalCenter
+            spacing: Theme.spacing.small
+
+            StyledTextField {
+                id: search
+
+                width: 200
+                height: 36
+                icon: "search"
+                placeholder: "Search folder"
+            }
+            IconButton {
+                icon: "sort"
+                type: ButtonBase.Text
+                onClicked: root.cycleSort()
+            }
+            IconButton {
+                icon: root.showHidden ? "visibility" : "visibility_off"
+                type: ButtonBase.Text
+                onClicked: root.showHidden = !root.showHidden
+            }
+            // "Icon view" / "List view", like the reference design's toggle.
+            TextButton {
+                text: root.viewMode === "grid" ? "Icon view" : "List view"
+                icon: root.viewMode === "grid" ? "grid_view" : "view_list"
+                type: ButtonBase.Tonal
+                onClicked: root.viewMode = root.viewMode === "grid" ? "list" : "grid"
+            }
+        }
+
+        // Row 2: navigation and the breadcrumb.
         Row {
             id: nav
 
             anchors.left: parent.left
             anchors.leftMargin: Theme.padding.medium
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Theme.spacing.small
             spacing: Theme.spacing.extraSmall
 
             IconButton {
@@ -235,44 +289,11 @@ Rectangle {
         PathBar {
             anchors.left: nav.right
             anchors.leftMargin: Theme.spacing.medium
-            anchors.right: tools.left
-            anchors.rightMargin: Theme.spacing.medium
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.padding.large
+            anchors.verticalCenter: nav.verticalCenter
             crumbs: Files.breadcrumb(root.path, root.home)
             onActivated: p => root.go(p)
-        }
-
-        Row {
-            id: tools
-
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.padding.medium
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacing.small
-
-            StyledTextField {
-                id: search
-
-                width: 200
-                height: 36
-                icon: "search"
-                placeholder: "Search folder"
-            }
-            IconButton {
-                icon: root.viewMode === "grid" ? "view_list" : "grid_view"
-                type: ButtonBase.Text
-                onClicked: root.viewMode = root.viewMode === "grid" ? "list" : "grid"
-            }
-            IconButton {
-                icon: "sort"
-                type: ButtonBase.Text
-                onClicked: root.cycleSort()
-            }
-            IconButton {
-                icon: root.showHidden ? "visibility" : "visibility_off"
-                type: ButtonBase.Text
-                onClicked: root.showHidden = !root.showHidden
-            }
         }
     }
 
@@ -286,6 +307,7 @@ Rectangle {
         anchors.left: parent.left
         places: root.places
         current: root.path
+        surfaceAlpha: root.surfaceAlpha
         onActivated: p => root.go(p)
     }
 
@@ -298,7 +320,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.rightMargin: Theme.padding.medium
         radius: Theme.rounding.large
-        color: Theme.palette.m3surfaceContainerLow
+        color: Qt.alpha(Theme.palette.m3surfaceContainerLow, Math.min(1, root.surfaceAlpha * 0.9))
         clip: true
 
         GridView {
@@ -401,7 +423,7 @@ Rectangle {
             anchors.rightMargin: Theme.padding.large
             anchors.verticalCenter: parent.verticalCenter
             readonly property var sel: root.selectedInfo()
-            text: sel ? `${sel.name} · ${sel.isDir ? "Folder" : Files.humanSize(sel.size)}` : `${root.folderName} · sorted by ${root.sortLabel.toLowerCase()}`
+            text: sel ? `${sel.name} · ${sel.isDir ? "Folder" : Files.humanSize(sel.size)}` : `${root.folderName} · Folder · sorted by ${root.sortLabel.toLowerCase()}`
             color: Theme.palette.m3onSurfaceVariant
         }
     }

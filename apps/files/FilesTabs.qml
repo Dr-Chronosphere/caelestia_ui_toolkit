@@ -19,6 +19,8 @@ Rectangle {
     property string active
     property var states: ({})
     property bool dropPreview: false
+    // Window translucency: 1 = opaque. The compositor's blur (a Hyprland window rule) shows through.
+    property real surfaceAlpha: 1
 
     signal newTabRequested
     signal closeTabRequested(string id)
@@ -48,7 +50,7 @@ Rectangle {
         return null;
     }
 
-    color: Theme.palette.m3surface
+    color: Qt.alpha(Theme.palette.m3surface, surfaceAlpha)
     implicitWidth: 960
     implicitHeight: 680
 
@@ -104,6 +106,7 @@ Rectangle {
 
                 anchors.fill: parent
                 home: root.home
+                surfaceAlpha: root.surfaceAlpha
                 visible: modelData === root.active
                 focus: visible
                 onOpenRequested: p => root.openRequested(p)

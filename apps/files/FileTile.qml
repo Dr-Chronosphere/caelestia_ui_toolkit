@@ -1,4 +1,5 @@
 import QtQuick
+import Qt.labs.folderlistmodel
 import CaelestiaUI
 import "logic/Files.js" as Files
 
@@ -17,6 +18,18 @@ Item {
     signal activated
 
     readonly property var kind: Files.kindOf(fileName, fileIsDir)
+    // Folders say how many items they hold (counted lazily, and only while the tile is on screen).
+    readonly property int itemCount: fileIsDir && visible ? counter.count : -1
+    readonly property string subtitle: fileIsDir ? (itemCount >= 0 ? Files.plural(itemCount, "item", "items") : "Folder") : kind.label + " \u00b7 " + Files.humanSize(fileSize)
+
+    FolderListModel {
+        id: counter
+
+        folder: root.fileIsDir && root.visible ? root.fileUrl : ""
+        showFiles: true
+        showDirs: true
+        showDotAndDotDot: false
+    }
 
     implicitWidth: 120
     implicitHeight: 132
@@ -100,7 +113,7 @@ Item {
         StyledText {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: root.fileIsDir ? "Folder" : Files.humanSize(root.fileSize)
+            text: root.subtitle
             elide: Text.ElideRight
             font: Theme.label.small
             color: root.selected ? Theme.palette.m3onSecondaryContainer : Theme.palette.m3onSurfaceVariant

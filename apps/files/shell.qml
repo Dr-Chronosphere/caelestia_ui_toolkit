@@ -18,6 +18,12 @@ ShellRoot {
     id: root
 
     readonly property string home: Quickshell.env("HOME")
+    // Window translucency (0.3..1). The window is see-through; add a Hyprland window rule with blur
+    // for it to frost the desktop behind (class "org.quickshell" / title "Files #*").
+    readonly property real surfaceAlpha: {
+        const v = parseFloat(Quickshell.env("FILES_OPACITY"));
+        return v >= 0.3 && v <= 1 ? v : 0.92;
+    }
 
     property var model: TabsModel {
         home: root.home
@@ -102,6 +108,7 @@ ShellRoot {
             required property string modelData
             readonly property var rec: root.model.windows[root.model.winIndex(modelData)]
 
+            color: "transparent"
             title: "Files #" + modelData + " — " + tabs.activeLabel
             implicitWidth: 960
             implicitHeight: 680
@@ -120,6 +127,7 @@ ShellRoot {
                 tabs: win.rec ? win.rec.tabs : []
                 active: win.rec ? win.rec.active : ""
                 states: root.model.states
+                surfaceAlpha: root.surfaceAlpha
                 dropPreview: root.overWindow === win.modelData
                 onNewTabRequested: root.model.addTab(win.modelData, "")
                 onCloseTabRequested: id => root.model.closeTab(win.modelData, id)
