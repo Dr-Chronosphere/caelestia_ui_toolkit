@@ -298,9 +298,11 @@ assert.deepEqual(JSON.parse(JSON.stringify(S.measureInsets(clJ, stJ))), { inner:
   assert.equal(S.hasFloating(JSON.stringify([{ title: "fractal-edges-card k7", floating: true, mapped: true }])), false, "cards alone do not count as floating windows");
   assert.deepEqual(plain(S.cardWindowAddresses(cl)), { k7: "0x1" });
   assert.deepEqual(plain(S.cardWindowAddresses("nope")), {});
-  assert.match(S.cardWindowRuleCommand(), /^pcall\(hl\.window_rule, \{ name = "fractal-edges-card-windows", match = \{ title = "\^fractal-edges-card " \}, float = true, no_focus = true/);
+  assert.match(S.cardWindowRuleCommand(), /^pcall\(hl\.window_rule, \{ name = "fractal-edges-card-windows", match = \{ title = "\^fractal-edges-card " \}, float = true, tag = "hide_in_bar", no_focus = true/);
   const cmd = S.placeCardsCommand([{ address: "0xabc", x: 10.4, y: 20, w: 300, h: 150.6 }, { address: "0x1; boom", x: 0, y: 0, w: 1, h: 1 }, { address: "0xdef", x: NaN, y: 0, w: 1, h: 1 }]);
-  assert.match(cmd, /p\("0xabc", 10, 20, 300, 151\)/);
+  assert.match(cmd, /p\("0xabc", 10, 20, 300, 151, false\)/);
+  assert.match(S.placeCardsCommand([{ address: "0xabc", x: 1, y: 2, w: 3, h: 4, instant: true }]), /p\("0xabc", 1, 2, 3, 4, true\)/);
+  assert.match(S.placeCardsCommand([{ address: "0xabc", x: 1, y: 2, w: 3, h: 4 }]), /set_prop/, "can switch animations off for a placement");
   assert.ok(!cmd.includes("boom") && !cmd.includes("0xdef"), "unsafe addresses and non-numbers are dropped");
   assert.equal(S.placeCardsCommand([]), "");
 }

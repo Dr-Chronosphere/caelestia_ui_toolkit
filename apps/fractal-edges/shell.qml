@@ -723,42 +723,118 @@ ShellRoot {
                 return null;
             }
 
+            // Switching modes destroys or creates every card window: start from scratch.
+            Connections {
+                target: root
+
+                function onCardModeChanged(): void {
+                    scope.placedCards = ({});
+                    scope.sentRects = ({});
+                    scope.sentAt = ({});
+                    scope.syncTries = 0;
+                    if (root.windowCards)
+                        scope.scheduleCardSync();
+                }
+            }
+
             function scheduleCardSync(): void {
                 if (root.windowCards)
                     cardSyncTimer.restart();
             }
 
-            // Find the card windows (by title) and put each at its card's rectangle. The compositor
-            // animates the move and resize with the same curve as the app window it covers.
+            // Find the card windows (by title) and put each at its card's rectangle, then CHECK that the
+            // window really got there (the compositor reports its position) and keep trying until it
+            // has. The compositor animates a normal move and resize with the same curve as the app
+            // window the card covers; a card's first placement is instant (animations off for it), so
+            // it never travels from the middle of the screen, and the card stays invisible until the
+            // window is where it should be.
+            property var sentAt: ({})
+            property int syncTries: 0
+
+            function near(a, t): bool {
+                return Math.abs(a.x - t.x) <= 4 && Math.abs(a.y - t.y) <= 4 && Math.abs(a.w - t.w) <= 4 && Math.abs(a.h - t.h) <= 4;
+            }
+
             function placeCards(clientsText: string): void {
                 cardAddr = Seams.cardWindowAddresses(clientsText);
+                const actual = Follow.rectsByAddress(clientsText);
+                const now = Date.now();
+                const settleMs = (root.moveAnim ? root.moveAnim.ms : 400) + 350;
                 const list = [];
                 const placed = Object.assign({}, placedCards);
+                // forget cards whose windows are gone (a recreated window starts unplaced again)
+                const live = {};
+                windowKeys.forEach(k => live[k] = true);
+                for (const k in placed) {
+                    if (!live[k])
+                        delete placed[k];
+                }
+                for (const k in sentRects) {
+                    if (!live[k]) {
+                        delete sentRects[k];
+                        delete sentAt[k];
+                    }
+                }
+                let waiting = false;
                 for (const k of windowKeys) {
                     const g = cardMap[k];
-                    const a = cardAddr[k];
-                    if (!g || !a)
+                    if (!g)
                         continue;
-                    const r = {
-                        "address": a,
-                        "x": g.x,
-                        "y": g.y,
-                        "w": Math.max(1, g.w),
-                        "h": Math.max(1, g.h)
-                    };
-                    const key = r.x + "," + r.y + "," + r.w + "," + r.h;
-                    if (sentRects[k] !== key) {
-                        sentRects[k] = key;
-                        list.push(r);
+                    const a = cardAddr[k];
+                    if (!a) {
+                        waiting = true;         // its window has not appeared yet
+                        continue;
                     }
-                    if (!placed[k])
-                        placedShow.pending[k] = true;
+                    const t = {
+                        "x": Math.round(g.x),
+                        "y": Math.round(g.y),
+                        "w": Math.max(1, Math.round(g.w)),
+                        "h": Math.max(1, Math.round(g.h))
+                    };
+                    const key = t.x + "," + t.y + "," + t.w + "," + t.h;
+                    const act = actual[a];
+                    const there = act !== undefined && near(act, t);
+                    const wasSent = sentRects[k] !== undefined;
+                    if (!placed[k]) {
+                        if (there) {
+                            placed[k] = true;   // it is where it should be: show it
+                        } else {
+                            waiting = true;
+                            if (!wasSent || sentRects[k] !== key || now - (sentAt[k] || 0) > 400) {
+                                sentRects[k] = key;
+                                sentAt[k] = now;
+                                list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": true });
+                            }
+                        }
+                    } else if (sentRects[k] !== key) {
+                        // its tile changed (reflow, zoom): move it with the compositor's animation
+                        sentRects[k] = key;
+                        sentAt[k] = now;
+                        list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": false });
+                        waiting = true;
+                    } else if (!there && now - (sentAt[k] || 0) > settleMs) {
+                        // it should have arrived by now and has not (a move that did not take): say it again
+                        sentAt[k] = now;
+                        list.push({ "address": a, "x": t.x, "y": t.y, "w": t.w, "h": t.h, "instant": true });
+                        waiting = true;
+                    } else if (!there) {
+                        waiting = true;         // still travelling
+                    }
                 }
+                if (JSON.stringify(placed) !== JSON.stringify(placedCards))
+                    placedCards = placed;
                 placeLua = Seams.placeCardsCommand(list);
                 if (placeLua !== "")
                     placeProc.running = true;
-                if (Object.keys(placedShow.pending).length > 0)
-                    placedShow.restart();
+                // keep looking until every card is where it belongs (bounded, in case a window never shows)
+                if (waiting && syncTries < 40) {
+                    syncTries++;
+                    cardSyncTimer.interval = 90;
+                    cardSyncTimer.restart();
+                } else {
+                    syncTries = 0;
+                    cardSyncTimer.interval = 30;
+                }
             }
 
             Timer {
@@ -793,23 +869,6 @@ ShellRoot {
                 command: ["hyprctl", "eval", scope.placeLua]
                 stdout: StdioCollector {
                     waitForEnd: true
-                }
-            }
-
-            // A card window shows (fades in) only once it has been moved to its place, so it never
-            // flashes where the compositor first put it.
-            Timer {
-                id: placedShow
-
-                property var pending: ({})
-
-                interval: 160
-                onTriggered: {
-                    const p = Object.assign({}, scope.placedCards);
-                    for (const k in pending)
-                        p[k] = true;
-                    pending = ({});
-                    scope.placedCards = p;
                 }
             }
 

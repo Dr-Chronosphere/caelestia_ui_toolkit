@@ -540,13 +540,17 @@ function cardWindowAddresses(clientsText) {
 }
 
 // Window rule for the card windows (through `hyprctl eval`, in a pcall): floating, never focused,
-// no border/shadow/blur/dimming, so the window is just the card's own pixels.
+// no border/shadow/blur/dimming, so the window is just the card's own pixels. The `hide_in_bar` tag
+// is Caelestia's own default entry in bar.workspaces.ignoredTags, so its bar does not count them.
 function cardWindowRuleCommand() {
-    return 'pcall(hl.window_rule, { name = "fractal-edges-card-windows", match = { title = "^fractal-edges-card " }, float = true, no_focus = true, no_initial_focus = true, no_follow_mouse = true, no_shadow = true, no_blur = true, no_dim = true, decorate = false, border_size = 0, rounding = 0 })';
+    return 'pcall(hl.window_rule, { name = "fractal-edges-card-windows", match = { title = "^fractal-edges-card " }, float = true, tag = "hide_in_bar", no_focus = true, no_initial_focus = true, no_follow_mouse = true, no_shadow = true, no_blur = true, no_dim = true, decorate = false, border_size = 0, rounding = 0 })';
 }
 
-// Lua that places card windows: [{ address, x, y, w, h }] -> resize then move each (absolute).
-// Addresses are checked (hex) so nothing else can end up in the command.
+// Lua that places card windows: [{ address, x, y, w, h, instant? }] -> resize then move each
+// (absolute). `instant` switches the window's animations off for the placement, so a card that has
+// just opened jumps to its place instead of travelling there from where the compositor put it (the
+// middle of the screen); they are switched back on right after. Addresses are checked (hex) so
+// nothing else can end up in the command.
 function placeCardsCommand(list) {
     var parts = [];
     list.forEach(function (c) {
@@ -555,9 +559,13 @@ function placeCardsCommand(list) {
         var n = [c.x, c.y, c.w, c.h].map(function (v) { return Math.round(Number(v)); });
         if (n.some(function (v) { return !isFinite(v); }))
             return;
-        parts.push('p("' + c.address + '", ' + n.join(", ") + ')');
+        parts.push('p("' + c.address + '", ' + n.join(", ") + ', ' + (c.instant ? "true" : "false") + ')');
     });
     if (!parts.length)
         return "";
-    return 'local function p(a, x, y, w, h) pcall(function() hl.dispatch(hl.dsp.window.resize({ window = "address:" .. a, x = w, y = h })); hl.dispatch(hl.dsp.window.move({ window = "address:" .. a, x = x, y = y, relative = false })) end) end; ' + parts.join("; ");
+    return 'local function prop(w, v) pcall(function() hl.dispatch(hl.dsp.window.set_prop({ window = w, prop = "no_anim", value = v })) end) end; '
+        + 'local function p(a, x, y, w, h, instant) local win = "address:" .. a; if instant then prop(win, "1") end; '
+        + 'pcall(function() hl.dispatch(hl.dsp.window.resize({ window = win, x = w, y = h })); hl.dispatch(hl.dsp.window.move({ window = win, x = x, y = y, relative = false })) end); '
+        + 'if instant then pcall(hl.timer, function() prop(win, "0") end, { timeout = 150, type = "oneshot" }) end end; '
+        + parts.join("; ");
 }

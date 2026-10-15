@@ -348,3 +348,18 @@ swipe and with every workspace/zoom animation exactly like the app windows (no e
 - The handles, drop zones and floating-window clipping ignore card windows (title prefix).
 - The window-mode path hides a card while its window is being dragged and during the custom
   workspace swipe; the layer-mode follow/slide code is not used.
+
+### Window mode: placement, animations and the Caelestia bar
+
+- **No flash in the middle of the screen.** A new window is opened wherever the compositor likes
+  (the centre), so the first placement is *instant* (the window's animations are switched off for
+  it through `hl.dsp.window.set_prop({ prop = "no_anim" })` and back on right after), and the card
+  stays invisible until the compositor reports the window at its place. A card whose tile changes
+  (reflow, zoom) is moved with the normal animation.
+- **No stuck cards.** After every move the overlay asks the compositor where the window is, and
+  keeps re-sending the placement until it is there (a move that did not take is repeated after the
+  animation should have finished).
+- **The bar does not count them.** The window rule tags card windows `hide_in_bar`, which is already in
+  Caelestia's default `bar.workspaces.ignoredTags`. If you changed that list in
+  `~/.config/caelestia/shell.json`, add `"hide_in_bar"` back (or any tag, then change the tag in
+  `Seams.cardWindowRuleCommand()` to match).
