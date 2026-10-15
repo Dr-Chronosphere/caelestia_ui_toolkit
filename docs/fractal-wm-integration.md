@@ -60,10 +60,13 @@ Hyprland restart or a layout switch.
   `IconCard.qml` (see that README). Tapping a card zooms into the window.
 - **Zoom gestures** (`integration/lua/fractal_gestures.lua`, installed by `caelestia-fractal-setup`):
   - Touchpad, native: 3-finger swipe **up** zooms in, **down** zooms out (a 2-finger swipe while SUPER is held
-    does the same), a 4-finger vertical swipe (up or down) toggles the special workspace, and a 4-finger horizontal swipe
-    switches workspaces (Hyprland's native workspace gesture; `workspace_fingers = false` leaves that to your
-    own config, which may already bind 3 fingers for it). Nothing is bound to five fingers.
-    `setup({ fingers = 3, special_fingers = 4, workspace_fingers = 4, mod_fingers = 2, mods = "SUPER", special = "special", pinch = false })`;
+    does the same), and a 4-finger vertical swipe (up or down) toggles the special workspace (Hyprland's built-in `special` action with
+    `workspace_name`). The workspace swipe is off by default (`workspace_fingers = 4` adds it), because Caelestia's
+    own `hypr/hyprland/gestures.lua` already binds one. **Hyprland keeps the first gesture registered for a finger
+    count + direction and warns that later ones are "overshadowed"**, so remove clashing ones there: Caelestia's
+    default 3-finger up/down (special workspace) and 4-finger down (sleep) bindings clash with these. Nothing is
+    bound to five fingers.
+    `setup({ fingers = 3, special_fingers = 4, workspace_fingers = false, mod_fingers = 2, mods = "SUPER", special = "special", pinch = false })`;
     `pinch = true` adds the old pinch out/in zoom. Zoom sends the same `zoom-in` / `zoom-out` layout
     commands as the keys. On Hyprland 0.56 a gesture's `action` is a Lua *function* (not a dispatcher
     object), so the file wraps the call; the special-workspace gesture uses `hl.dsp.workspace.toggle_special`

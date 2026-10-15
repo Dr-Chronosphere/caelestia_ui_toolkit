@@ -33,11 +33,10 @@ local function slurp() local f = io.open(tmp .. "/fractal-wm/gestures.log") loca
 test("3-finger swipe up/down zoom, 4-finger vertical toggles the special workspace, 2-finger + modifier zoom", function()
   local env = fake()
   require("fractal_gestures").setup()
-  eq(#env.specs, 6, "six gestures (no pinch by default)")
+  eq(#env.specs, 5, "five gestures (no pinch, no workspace swipe by default)")
   local by = {}
   for _, s in ipairs(env.specs) do by[s.fingers .. s.direction .. (s.mods or "")] = s end
-  assert(by["3up"] and by["3down"] and by["4vertical"] and by["4horizontal"] and by["2upSUPER"] and by["2downSUPER"], "all six present")
-  eq(by["4horizontal"].action, "workspace", "4-finger horizontal is the native workspace swipe")
+  assert(by["3up"] and by["3down"] and by["4vertical"] and by["2upSUPER"] and by["2downSUPER"], "all five present")
   for _, s in ipairs(env.specs) do
     if s.fingers ~= 4 then eq(type(s.action), "function", "action is a function (0.56 rejects dispatcher objects)") end
   end
@@ -47,23 +46,25 @@ test("3-finger swipe up/down zoom, 4-finger vertical toggles the special workspa
   eq(table.concat(env.dispatched, ","), "layout:zoom-in,layout:zoom-out,layout:zoom-in", "zoom actions send the layout commands via hl.dispatch")
   eq(by["3up"].mods, nil, "the plain 3-finger gesture has no modifier")
   for _, s in ipairs(env.specs) do assert(s.fingers ~= 5, "nothing on five fingers") end
-  for _, s in ipairs(env.specs) do assert(s.direction ~= "left" and s.direction ~= "right", "no 3-finger or other horizontal swipes besides the 4-finger workspace one") end
-  for _, s in ipairs(env.specs) do if s.direction == "horizontal" then eq(s.fingers, 4, "only 4 fingers swipe workspaces") end end
+  for _, s in ipairs(env.specs) do assert(s.direction ~= "left" and s.direction ~= "right" and s.direction ~= "horizontal", "no horizontal swipes by default") end
 end)
 
-test("special workspace: uses the dispatcher when Hyprland has it, else the built-in action", function()
+test("special workspace: the built-in action with the workspace name", function()
   local env = fake()
-  hl.dsp.workspace = { toggle_special = function(name) return "toggle_special:" .. name end }
   require("fractal_gestures").setup({ special = "scratch" })
   local sp
   for _, s in ipairs(env.specs) do if s.direction == "vertical" then sp = s end end
-  eq(type(sp.action), "function")
-  sp.action()
-  eq(env.dispatched[#env.dispatched], "toggle_special:scratch")
-  env = fake()
-  require("fractal_gestures").setup()
-  for _, s in ipairs(env.specs) do if s.direction == "vertical" then sp = s end end
-  eq(sp.action, "special", "falls back to the built-in 'special' action")
+  eq(sp.fingers, 4)
+  eq(sp.action, "special", "uses Hyprland's built-in special action")
+  eq(sp.workspace_name, "scratch", "with the name in workspace_name, like Caelestia's own gesture")
+end)
+
+test("workspace swipe is opt-in (Caelestia already binds one)", function()
+  local env = fake()
+  require("fractal_gestures").setup({ workspace_fingers = 4 })
+  local n = 0
+  for _, s in ipairs(env.specs) do if s.direction == "horizontal" then n = n + 1 eq(s.action, "workspace") end end
+  eq(n, 1)
 end)
 
 test("options: finger counts and modifier; pinch opt-in; false skips groups", function()
@@ -82,7 +83,7 @@ test("a rejected value does not break setup, and is recorded", function()
   local env = fake({ reject = function(spec) return spec.direction == "vertical" end })
   local ok = pcall(function() require("fractal_gestures").setup() end)
   eq(ok, true, "setup survives hl.gesture raising")
-  eq(#env.specs, 5, "the other gestures were still registered")
+  eq(#env.specs, 4, "the other gestures were still registered")
   local log = slurp()
   assert(log:find("REJECTED", 1, true), "log says what was rejected")
   assert(log:find("unknown direction 'vertical'", 1, true), "with Hyprland's own message")

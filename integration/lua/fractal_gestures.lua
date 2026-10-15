@@ -8,12 +8,16 @@
 --   `fingers` (3) swipe UP            -> zoom-in  (the focused window fills the view)
 --   `fingers` (3) swipe DOWN          -> zoom-out
 --   `special_fingers` (4) swipe up or down -> toggle the special workspace (scratchpad) `special`
---   `workspace_fingers` (4) swipe left or right -> switch workspace (Hyprland's native workspace swipe)
+--   `workspace_fingers` (off by default) swipe left or right -> switch workspace. Caelestia's own
+--     hyprland/gestures.lua already binds this (4 fingers), and Hyprland keeps the FIRST gesture
+--     registered for a finger count + direction, so ours would only be shadowed; enable it if you
+--     have no workspace swipe.
 --   the same zoom swipes with `mod_fingers` (2) fingers while `mods` are held (mod_fingers = false
 --     to skip)
 --   pinch = true also binds pinch out/in with `fingers` fingers to zoom-in/out (off by default)
---   Set workspace_fingers = false to leave workspace swiping to your own config. No five-finger
---   gesture is bound.
+--   Hyprland keeps the first gesture registered for a given finger count + direction (+ modifier)
+--   and warns that later ones are overshadowed, so remove clashing ones from your own config.
+--   No five-finger gesture is bound.
 --
 -- Touchscreen: Hyprland has no native touchscreen pinch. fractal_keys.lua binds a 3-finger pinch
 -- through the hyprgrass plugin when it is loaded; this file only reports whether it is.
@@ -54,16 +58,6 @@ local function try(label, spec)
   return ok
 end
 
--- Toggle the special workspace `name`: the dispatcher if this Hyprland has it, else the built-in
--- "special" gesture action.
-local function special_action(name)
-  if type(hl) == "table" and type(hl.dsp) == "table" and type(hl.dsp.workspace) == "table"
-      and type(hl.dsp.workspace.toggle_special) == "function" then
-    return function() hl.dispatch(hl.dsp.workspace.toggle_special(name)) end, "hl.dsp.workspace.toggle_special"
-  end
-  return "special", "built-in special action"
-end
-
 function M.setup(opts)
   opts = opts or {}
   log_lines = {}
@@ -71,7 +65,7 @@ function M.setup(opts)
   local special_fingers = opts.special_fingers
   if special_fingers == nil then special_fingers = 4 end
   local workspace_fingers = opts.workspace_fingers
-  if workspace_fingers == nil then workspace_fingers = 4 end
+  if workspace_fingers == nil then workspace_fingers = false end
   local mod_fingers = opts.mod_fingers
   if mod_fingers == nil then mod_fingers = 2 end
   local mods = opts.mods or "SUPER"
@@ -83,9 +77,10 @@ function M.setup(opts)
     try(fingers .. "-finger swipe up -> zoom-in", { fingers = fingers, direction = "up", action = layout("zoom-in") })
     try(fingers .. "-finger swipe down -> zoom-out", { fingers = fingers, direction = "down", action = layout("zoom-out") })
     if special_fingers then
-      local act, how = special_action(special)
-      try(special_fingers .. "-finger vertical swipe -> toggle special workspace '" .. special .. "' (" .. how .. ")",
-        { fingers = special_fingers, direction = "vertical", action = act })
+      -- Hyprland's built-in "special" action takes the workspace name as `workspace_name` (the same
+      -- form Caelestia's own gestures.lua uses).
+      try(special_fingers .. "-finger vertical swipe -> toggle special workspace '" .. special .. "'",
+        { fingers = special_fingers, direction = "vertical", action = "special", workspace_name = special })
     end
     if workspace_fingers then
       try(workspace_fingers .. "-finger horizontal swipe -> switch workspace",
