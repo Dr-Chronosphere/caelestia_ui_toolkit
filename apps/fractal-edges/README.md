@@ -130,7 +130,9 @@ hyprctl reload                                    # the layout hot-swaps
 /path/to/caelestia_ui_toolkit/bin/caelestia-fractal-edges start
 ```
 
-Start it at login from your Hyprland autostart. `stop` and `restart` shut the overlay down
+`bin/caelestia-fractal-setup install` (step 8) appends a `hl.on("hyprland.start", ...)` block to your
+`hyprland.lua` that runs `caelestia-fractal-edges start` at login (delete the block to undo).
+To do it by hand, put that call in your own autostart. `stop` and `restart` shut the overlay down
 gracefully (an IPC `quit` that destroys the handle windows first, then exits), fall back to
 `qs kill`, and wait for the old instance to be gone before a restart starts a new one.
 

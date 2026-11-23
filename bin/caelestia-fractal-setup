@@ -117,7 +117,7 @@ install_all() {
     command -v jq >/dev/null || warn "jq is missing: the fractal CLI needs it (install it with your package manager)"
     [ -f "$patch" ] || die "patch not found at $patch"
 
-    echo "1/8 fractal-wm clone ($FRACTAL_DIR @ $PIN + edge-resize patch)"
+    echo "1/9 fractal-wm clone ($FRACTAL_DIR @ $PIN + edge-resize patch)"
     if [ ! -d "$FRACTAL_DIR/.git" ]; then
         git clone -q "$UPSTREAM" "$FRACTAL_DIR"
     fi
@@ -141,7 +141,7 @@ install_all() {
         ok "checked out $PIN and applied the patch"
     fi
 
-    echo "2/8 Lua modules -> $HYPR_DIR"
+    echo "2/9 Lua modules -> $HYPR_DIR"
     mkdir -p "$HYPR_DIR"
     for f in fractal.lua fractal_tree.lua; do
         if [ -e "$HYPR_DIR/$f" ] && [ ! -L "$HYPR_DIR/$f" ]; then
@@ -151,7 +151,7 @@ install_all() {
         ok "$f"
     done
 
-    echo "3/8 keybindings ($HYPR_DIR/fractal_keys.lua)"
+    echo "3/9 keybindings ($HYPR_DIR/fractal_keys.lua)"
     if [ ! -f "$HYPR_DIR/fractal_keys.lua" ]; then
         cp "$FRACTAL_DIR/lua/fractal_keys.lua" "$HYPR_DIR/fractal_keys.lua"
         ok "copied (edit your copy; it is yours)"
@@ -173,13 +173,13 @@ install_all() {
         warn "could not find the SUPER+CTRL+Y line to rewrite; set it yourself to: $here/caelestia-fractal-map toggle"
     fi
 
-    echo "4/8 fractal CLI -> $BIN_DIR"
+    echo "4/9 fractal CLI -> $BIN_DIR"
     mkdir -p "$BIN_DIR"
     ln -sfn "$FRACTAL_DIR/bin/fractal" "$BIN_DIR/fractal"
     ok "fractal"
     case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR is not on your PATH" ;; esac
 
-    echo "5/8 $HYPR_LUA"
+    echo "5/9 $HYPR_LUA"
     local block
     block=$(printf '%s\n' \
         '-- fractal-wm (added by caelestia-fractal-setup)' \
@@ -211,7 +211,7 @@ install_all() {
         fi
     fi
 
-    echo "6/8 pinch-zoom gestures (touchpad)"
+    echo "6/9 pinch-zoom gestures (touchpad)"
     gfile="$HYPR_DIR/fractal_gestures.lua"
     if [ -e "$gfile" ] && [ ! -L "$gfile" ]; then
         warn "$gfile exists and is not a link; leaving it alone"
@@ -248,7 +248,7 @@ install_all() {
         fi
     fi
 
-    echo "7/8 fractal as the default layout (every workspace, not only ones you ran \`fractal on\` on)"
+    echo "7/9 fractal as the default layout (every workspace, not only ones you ran \`fractal on\` on)"
     lblock=$(printf '%s\n' \
         '-- fractal-wm as the default layout (added by caelestia-fractal-setup; delete these two lines to undo)' \
         'hl.config({ general = { layout = "lua:fractal" } })')
@@ -278,11 +278,43 @@ install_all() {
         fi
     fi
 
-    echo "8/8 next steps"
+    echo "8/9 start the overlay with Hyprland (edge handles + icon cards)"
+    sblock=$(printf '%s\n' \
+        '-- start fractal-edges with Hyprland (added by caelestia-fractal-setup; delete these lines to undo)' \
+        'hl.on("hyprland.start", function()' \
+        "    hl.exec_cmd(\"$here/caelestia-fractal-edges start\")" \
+        'end)')
+    if [ ! -f "$HYPR_LUA" ]; then
+        warn "add this to your Hyprland Lua config:"
+        printf '%s\n' "$sblock" | sed 's/^/      /'
+    elif grep -q 'caelestia-fractal-edges' "$HYPR_LUA"; then
+        ok "fractal-edges already started from $HYPR_LUA"
+    elif tail -n 20 "$HYPR_LUA" | grep -Eq '^[[:space:]]*return[[:space:]]'; then
+        warn "$HYPR_LUA ends with a top-level 'return'; add this before it yourself:"
+        printf '%s\n' "$sblock" | sed 's/^/      /'
+    else
+        sgo=$yes
+        if [ "$yes" -eq 0 ]; then
+            printf '      This will be appended to %s:\n' "$HYPR_LUA"
+            printf '%s\n' "$sblock" | sed 's/^/        /'
+            printf '      Proceed? [y/N] '
+            read -r ans </dev/tty || ans=n
+            case "$ans" in y | Y | yes) sgo=1 ;; esac
+        fi
+        if [ "$sgo" -eq 1 ]; then
+            [ -f "$HYPR_LUA.bak-fractal" ] || cp "$HYPR_LUA" "$HYPR_LUA.bak-fractal"
+            printf '\n%s\n' "$sblock" >> "$HYPR_LUA"
+            ok "added (takes effect at next login; start it now with: $here/caelestia-fractal-edges start)"
+        else
+            warn "skipped; add the lines above yourself to start it at login"
+        fi
+    fi
+
+    echo "9/9 next steps"
     cat <<MSG
       hyprctl reload && hyprctl configerrors      # should print nothing
       fractal on                                  # per-workspace switch, if you skipped the default-layout step
-      $here/caelestia-fractal-edges start         # mouse/touch edge handles + icon cards (add to autostart)
+      $here/caelestia-fractal-edges start         # start it now (step 8 starts it at login)
       # after the reload: pinch gestures are recorded in ~/.local/state/fractal-wm/gestures.log (see check)
       $here/caelestia-fractal-setup check             # re-check any time
 MSG
